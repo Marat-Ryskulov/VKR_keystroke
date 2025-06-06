@@ -19,7 +19,7 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 # Настройки машинного обучения
 MIN_TRAINING_SAMPLES = 50  # Минимум образцов для обучения
 KNN_NEIGHBORS = 3          # Количество соседей для KNN
-THRESHOLD_ACCURACY = 0.80  # Порог точности для аутентификации
+THRESHOLD_ACCURACY = 0.75  # Порог точности для аутентификации
 
 # Настройки GUI
 WINDOW_WIDTH = 600
