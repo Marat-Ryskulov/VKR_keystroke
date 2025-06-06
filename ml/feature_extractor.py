@@ -1,21 +1,30 @@
 # ml/feature_extractor.py - Извлечение признаков из динамики нажатий
 
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union, Any
 from collections import defaultdict
+
+from models.keystroke_data import KeystrokeData
 
 class FeatureExtractor:
     """Класс для извлечения признаков из динамики нажатий"""
     
     @staticmethod
-    def extract_features_from_samples(samples: List[dict]) -> np.ndarray:
+    def extract_features_from_samples(samples: List[Any]) -> np.ndarray:
         """Извлечение матрицы признаков из списка образцов"""
         if not samples:
             return np.array([])
-        
+    
         feature_vectors = []
         for sample in samples:
-            features = sample.get('features', {})
+            # Обработка как объектов KeystrokeData, так и словарей
+            if hasattr(sample, 'features'):
+                # Это объект KeystrokeData
+                features = sample.features
+            else:
+                # Это словарь
+                features = sample.get('features', {})
+        
             vector = [
                 features.get('avg_dwell_time', 0),
                 features.get('std_dwell_time', 0),
@@ -25,7 +34,7 @@ class FeatureExtractor:
                 features.get('total_typing_time', 0)
             ]
             feature_vectors.append(vector)
-        
+    
         return np.array(feature_vectors)
     
     @staticmethod
