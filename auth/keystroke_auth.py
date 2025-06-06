@@ -82,30 +82,105 @@ class KeystrokeAuthenticator:
     
         return features
     
-    def authenticate(self, user: User, keystroke_features: Dict[str, float]) -> Tuple[bool, float, str]:
+    def authenticate(self, user, keystroke_features: Dict[str, float]) -> Tuple[bool, float, str]:
         """
-        Второй фактор аутентификации - проверка динамики нажатий
-        Возвращает: (успех, уверенность, сообщение)
+        Второй фактор аутентификации с детальным анализом
         """
         if not user.is_trained:
-            return False, 0.0, "Модель пользователя не обучена. Необходимо пройти обучение."
-        
-        # Аутентификация через модель
-        is_authenticated, confidence, message = self.model_manager.authenticate_user(
-            user.id, 
-            keystroke_features
+            return False, 0.0, "Модель пользователя не обучена."
+    
+        # Аутентификация с получением детальной статистики
+        is_authenticated, confidence, detailed_stats = self.model_manager.authenticate_user_detailed(
+            user.id, keystroke_features
         )
+    
+        # ПРОСТОЙ КОНСОЛЬНЫЙ АНАЛИЗ (РАБОТАЕТ ВСЕГДА)
+        print(f"\n{'='*60}")
+        print(f"🔍 АНАЛИЗ АУТЕНТИФИКАЦИИ - {user.username}")
+        print(f"{'='*60}")
+        print(f"📅 Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
+        print(f"🎯 Результат: {'✅ ПРИНЯТ' if is_authenticated else '❌ ОТКЛОНЕН'}")
+        print(f"🎲 Финальная уверенность: {confidence:.1%}")
+        print(f"🚪 Порог принятия: {detailed_stats.get('threshold', 0.75):.1%}")
+        print()
+    
+        print("📊 КОМПОНЕНТНЫЙ АНАЛИЗ:")
+        knn_conf = detailed_stats.get('knn_confidence', 0)
+        dist_score = detailed_stats.get('distance_score', 0)
+        feat_score = detailed_stats.get('feature_score', 0)
+        weights = detailed_stats.get('weights', {'knn': 0.5, 'distance': 0.3, 'features': 0.2})
+    
+        print(f"├─ KNN Классификатор: {knn_conf:.1%}")
+        print(f"├─ Анализ расстояний: {dist_score:.1%}")
+        print(f"├─ Анализ признаков: {feat_score:.1%}")
+        print()
+    
+        print("⚖️ ВЗВЕШЕННОЕ КОМБИНИРОВАНИЕ:")
+        knn_weighted = knn_conf * weights.get('knn', 0.5)
+        dist_weighted = dist_score * weights.get('distance', 0.3)
+        feat_weighted = feat_score * weights.get('features', 0.2)
+    
+        print(f"├─ KNN: {knn_conf:.1%} × {weights.get('knn', 0.5):.1f} = {knn_weighted:.1%}")
+        print(f"├─ Расстояния: {dist_score:.1%} × {weights.get('distance', 0.3):.1f} = {dist_weighted:.1%}")
+        print(f"├─ Признаки: {feat_score:.1%} × {weights.get('features', 0.2):.1f} = {feat_weighted:.1%}")
+        print(f"└─ ИТОГО: {confidence:.1%}")
+        print()
+    
+        print("📋 ВАШИ ПРИЗНАКИ КЛАВИАТУРНОГО ПОЧЕРКА:")
+        print(f"├─ Время удержания клавиш: {keystroke_features.get('avg_dwell_time', 0)*1000:.1f} мс")
+        print(f"├─ Время между клавишами: {keystroke_features.get('avg_flight_time', 0)*1000:.1f} мс")
+        print(f"├─ Скорость печати: {keystroke_features.get('typing_speed', 0):.1f} клавиш/сек")
+        print(f"└─ Общее время ввода: {keystroke_features.get('total_typing_time', 0):.1f} сек")
+        print()
+    
+        print("🎯 РЕШЕНИЕ СИСТЕМЫ:")
+        if confidence >= detailed_stats.get('threshold', 0.75):
+            print(f"✅ {confidence:.1%} ≥ {detailed_stats.get('threshold', 0.75):.1%} → ДОСТУП РАЗРЕШЕН")
+            print("💡 Ваш стиль печати соответствует обученному профилю")
+        else:
+            print(f"❌ {confidence:.1%} < {detailed_stats.get('threshold', 0.75):.1%} → ДОСТУП ЗАПРЕЩЕН")
+            print("💡 Стиль печати отличается от обученного профиля")
+    
+        print("="*60)
+    
+        # Попытка открыть GUI окно (без критических ошибок)
+        try:
+            # Сохраняем данные для возможного просмотра
+            analysis_data = {
+                'user_name': user.username,
+                'result': is_authenticated,
+                'confidence': confidence,
+                'threshold': detailed_stats.get('threshold', 0.75),
+                'components': {
+                    'knn': knn_conf,
+                    'distance': dist_score,
+                    'features': feat_score
+                },
+                'weights': weights,
+                'keystroke_features': keystroke_features,
+                'timestamp': datetime.now().isoformat()
+            }
         
-        # Сохранение попытки аутентификации для анализа
-        session_id = str(uuid.uuid4())
-        keystroke_data = KeystrokeData(
-            user_id=user.id,
-            session_id=session_id,
-            timestamp=datetime.now(),
-            features=keystroke_features
-        )
-        self.db.save_keystroke_sample(keystroke_data, is_training=False)
+            # Сохраняем в временный файл для визуализации
+            import json
+            import os
+            temp_dir = os.path.join(os.path.dirname(__file__), '..', 'temp')
+            os.makedirs(temp_dir, exist_ok=True)
         
+            with open(os.path.join(temp_dir, 'last_auth_analysis.json'), 'w') as f:
+                json.dump(analysis_data, f, indent=2)
+        
+            print("💾 Данные анализа сохранены для детального просмотра")
+            print(f"📁 Файл: {os.path.join(temp_dir, 'last_auth_analysis.json')}")
+        
+        except Exception as e:
+            print(f"⚠️ Не удалось сохранить данные анализа: {e}")
+    
+        if is_authenticated:
+            message = f"Аутентификация успешна (уверенность: {confidence:.1%})"
+        else:
+            message = f"Аутентификация отклонена (уверенность: {confidence:.1%})"
+    
         return is_authenticated, confidence, message
     
     def train_user_model(self, user: User) -> Tuple[bool, float, str]:
