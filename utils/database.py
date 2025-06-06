@@ -64,10 +64,30 @@ class DatabaseManager:
                     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
                 )
             ''')
+
+            # НОВАЯ ТАБЛИЦА: логи аутентификации
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS auth_attempts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    session_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    features TEXT NOT NULL,
+                    knn_confidence REAL NOT NULL,
+                    distance_score REAL NOT NULL,
+                    feature_score REAL NOT NULL,
+                    final_confidence REAL NOT NULL,
+                    threshold_used REAL NOT NULL,
+                    result INTEGER NOT NULL,
+                    manual_label INTEGER,
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                )
+            ''')
             
             # Индексы для производительности
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_username ON users (username)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_samples ON keystroke_samples (user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_auth_attempts ON auth_attempts (user_id, timestamp)')
     
     def create_user(self, user: User) -> Optional[int]:
         """Создание нового пользователя"""
@@ -347,3 +367,61 @@ class DatabaseManager:
             print(f"  Попыток аутентификации: {auth_count}")
             print(f"  Всего: {len(samples)}")
             print(f"=== КОНЕЦ ОТЛАДКИ ===\n")
+
+
+    def save_auth_attempt(self, user_id: int, session_id: str, features: dict, 
+                        knn_confidence: float, distance_score: float, feature_score: float,
+                        final_confidence: float, threshold: float, result: bool, manual_label: int = None):
+        """Сохранение попытки аутентификации"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+        
+            features_json = json.dumps(features)
+        
+            cursor.execute('''
+                INSERT INTO auth_attempts 
+                (user_id, session_id, timestamp, features, knn_confidence, distance_score, 
+                feature_score, final_confidence, threshold_used, result, manual_label)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                user_id, session_id, datetime.now().isoformat(), features_json,
+                knn_confidence, distance_score, feature_score, final_confidence,
+                threshold, int(result), manual_label
+            ))
+
+
+    def get_auth_attempts(self, user_id: int, limit: int = None) -> List[dict]:
+        """Получение попыток аутентификации пользователя"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+        
+            query = '''
+                SELECT * FROM auth_attempts 
+                WHERE user_id = ?
+                ORDER BY timestamp DESC
+            '''
+        
+            if limit:
+                query += f' LIMIT {limit}'
+            
+            cursor.execute(query, (user_id,))
+        
+            attempts = []
+            for row in cursor.fetchall():
+                attempt = dict(row)
+                attempt['features'] = json.loads(attempt['features'])
+                attempt['timestamp'] = datetime.fromisoformat(attempt['timestamp'])
+                attempts.append(attempt)
+        
+            return attempts
+        
+
+    def update_auth_attempt_label(self, attempt_id: int, manual_label: int):
+        """Обновление ручной метки попытки (0=чужой, 1=ваш)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE auth_attempts 
+                SET manual_label = ?
+                WHERE id = ?
+            ''', (manual_label, attempt_id))
