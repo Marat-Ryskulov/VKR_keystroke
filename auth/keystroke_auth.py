@@ -48,22 +48,38 @@ class KeystrokeAuthenticator:
         """
         if session_id not in self.current_session:
             raise ValueError("Сессия не найдена")
-        
+    
         keystroke_data = self.current_session[session_id]
+    
+        # ВАЖНО: Всегда вычисляем признаки перед сохранением
         features = keystroke_data.calculate_features()
-        
+    
+        # Проверяем, что признаки были рассчитаны
+        if not features:
+            print("Предупреждение: Не удалось рассчитать признаки для образца")
+            # Создаем пустые признаки для совместимости
+            features = {
+                'avg_dwell_time': 0.0,
+                'std_dwell_time': 0.0,
+                'avg_flight_time': 0.0,
+                'std_flight_time': 0.0,
+                'typing_speed': 0.0,
+                'total_typing_time': 0.0
+            }
+            keystroke_data.features = features
+    
         # Сохранение в БД если это обучающий образец
         if is_training:
             self.db.save_keystroke_sample(keystroke_data, is_training=True)
-            
+        
             # Сохранение сырых данных о нажатиях
             user = self.db.get_user_by_id(keystroke_data.user_id)
             if user:
                 keystroke_data.save_raw_events_to_csv(user.id, user.username)
-        
+    
         # Удаление из текущих сессий
         del self.current_session[session_id]
-        
+    
         return features
     
     def authenticate(self, user: User, keystroke_features: Dict[str, float]) -> Tuple[bool, float, str]:
@@ -133,14 +149,21 @@ class KeystrokeAuthenticator:
     
     def get_authentication_stats(self, user: User) -> Dict[str, any]:
         """Получение статистики аутентификации пользователя"""
+    
+        # ✅ ПРАВИЛЬНО: Используем ОТДЕЛЬНЫЕ методы для разных типов данных
+    
+        # Обучающие образцы (is_training = 1)
+        training_samples = self.db.get_user_training_samples(user.id)
+    
+        # ВСЕ образцы
         all_samples = self.db.get_user_keystroke_samples(user.id, training_only=False)
-        training_samples = [s for s in all_samples if s.get('is_training', False)]
-        auth_samples = [s for s in all_samples if not s.get('is_training', False)]
-        
-        # Здесь можно добавить более детальную статистику
+    
+        # Попытки аутентификации = все - обучающие
+        auth_attempts = len(all_samples) - len(training_samples)
+    
         return {
             'total_samples': len(all_samples),
-            'training_samples': len(training_samples),
-            'authentication_attempts': len(auth_samples),
+            'training_samples': len(training_samples),  # ✅ ТОЛЬКО обучающие
+            'authentication_attempts': max(0, auth_attempts),  # ✅ ТОЛЬКО попытки входа
             'model_info': self.model_manager.get_model_info(user.id)
         }
