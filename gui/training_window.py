@@ -23,7 +23,7 @@ class TrainingWindow:
         self.window.title("Обучение системы")
         self.window.geometry("700x800")
         self.window.resizable(True, True)
-        self.window.minsize(600, 750)
+        self.window.minsize(600, 1000)
         
         # Модальное окно
         self.window.transient(parent)
