@@ -76,272 +76,313 @@ class KNNAuthenticator:
     
         return True, train_accuracy
     
-    def authenticate(self, features: np.ndarray, threshold: float = 0.5) -> Tuple[bool, float]:
+    def authenticate(self, features: np.ndarray, threshold: float = 0.5, verbose: bool = False) -> Tuple[bool, float, dict]:
         """
-        Продвинутая аутентификация с множественными методами
+        Продвинутая аутентификация с детальной статистикой
+        Возвращает: (результат, финальная_уверенность, детальная_статистика)
         """
         if not self.is_trained:
-            return False, 0.0
-    
-        print(f"\n=== НАЧАЛО АУТЕНТИФИКАЦИИ ===")
-        print(f"Входящие признаки: {features}")
-    
+            return False, 0.0, {}
+
+        # Убеждаемся, что features - это 1D массив
+        if features.ndim > 1:
+            features = features.flatten()
+
+        if verbose:
+            print(f"\n=== НАЧАЛО АУТЕНТИФИКАЦИИ ===")
+            print(f"Входящие признаки: {features}")
+
         # 1. Основное предсказание KNN
-        probabilities = self.model.predict_proba(features.reshape(1, -1))[0]
-        print(f"KNN probabilities: {probabilities}")
-        print(f"KNN classes: {self.model.classes_}")
+        features_reshaped = features.reshape(1, -1)
+        probabilities = self.model.predict_proba(features_reshaped)[0]
     
         # Получаем базовую вероятность
         knn_probability = 0.0
         if len(probabilities) > 1 and 1.0 in self.model.classes_:
             class_1_index = list(self.model.classes_).index(1.0)
             knn_probability = probabilities[class_1_index]
-    
-        print(f"KNN auth probability: {knn_probability:.3f}")
-    
-        # 2. Анализ расстояний до обучающих образцов
+
+        # 2. Анализ расстояний
         distance_score = 0.0
+        distance_details = {}
+    
         if hasattr(self, 'training_data') and self.training_data is not None:
             from sklearn.metrics.pairwise import euclidean_distances
         
             X_positive = self.training_data
-            distances = euclidean_distances(features.reshape(1, -1), X_positive)[0]
+            distances = euclidean_distances(features_reshaped, X_positive)[0]
         
-            # Детальная статистика расстояний
             min_distance = np.min(distances)
             mean_distance = np.mean(distances)
-            median_distance = np.median(distances)
         
-            # k ближайших соседей
-            k = min(5, len(distances))
-            nearest_distances = np.sort(distances)[:k]
-            avg_nearest = np.mean(nearest_distances)
-        
-            # Статистика обучающих образцов
+            # Статистика обучающих данных
             if len(X_positive) > 1:
                 train_distances = euclidean_distances(X_positive, X_positive)
                 train_distances = train_distances[train_distances > 0]
                 mean_train_distance = np.mean(train_distances)
                 std_train_distance = np.std(train_distances)
-                median_train_distance = np.median(train_distances)
             else:
                 mean_train_distance = 1.0
                 std_train_distance = 0.5
-                median_train_distance = 1.0
         
-            print(f"\nАНАЛИЗ РАССТОЯНИЙ:")
-            print(f"  Min distance: {min_distance:.4f}")
-            print(f"  Mean distance: {mean_distance:.4f}")
-            print(f"  Median distance: {median_distance:.4f}")
-            print(f"  Avg nearest {k}: {avg_nearest:.4f}")
-            print(f"  Train mean: {mean_train_distance:.4f}")
-            print(f"  Train std: {std_train_distance:.4f}")
-            print(f"  Train median: {median_train_distance:.4f}")
-        
-            # Множественные оценки расстояний
-            scores = []
-        
-            # Оценка 1: Минимальное расстояние
+            # Оценки расстояний
             norm_min = min_distance / (mean_train_distance + 1e-6)
-            score1 = max(0, 1.0 - norm_min * 0.8)
-            scores.append(('min_dist', score1))
+            distance_score = max(0, 1.0 - norm_min * 0.8)
         
-            # Оценка 2: Среднее расстояние до ближайших
-            norm_nearest = avg_nearest / (mean_train_distance + 1e-6)
-            score2 = max(0, 1.0 - norm_nearest * 0.6)
-            scores.append(('nearest_avg', score2))
-        
-            # Оценка 3: Сравнение с медианой
-            norm_median = min_distance / (median_train_distance + 1e-6)
-            score3 = max(0, 1.0 - norm_median * 0.7)
-            scores.append(('median_comp', score3))
-        
-            # Оценка 4: Z-score анализ
-            if std_train_distance > 0:
-                z_score = abs(min_distance - mean_train_distance) / std_train_distance
-                score4 = max(0, 1.0 - z_score * 0.3)
-            else:
-                score4 = score1
-            scores.append(('z_score', score4))
-        
-            # Комбинированная оценка расстояний
-            distance_score = np.mean([s[1] for s in scores])
-        
-            print(f"  Distance scores: {scores}")
-            print(f"  Combined distance score: {distance_score:.3f}")
-    
-        # 3. Анализ признаков (проверка на разумность)
+            distance_details = {
+                'min_distance': min_distance,
+                'mean_distance': mean_distance,
+                'mean_train_distance': mean_train_distance,
+                'normalized_distance': norm_min
+            }
+
+        # 3. Анализ признаков
         feature_score = 1.0
+        feature_details = {}
+    
         if hasattr(self, 'training_data') and self.training_data is not None:
             X_positive = self.training_data
-        
-            # Статистики обучающих данных
             train_mean = np.mean(X_positive, axis=0)
             train_std = np.std(X_positive, axis=0)
         
-            # Проверяем каждый признак
             feature_penalties = []
             feature_names = ['avg_dwell', 'std_dwell', 'avg_flight', 'std_flight', 'speed', 'total_time']
         
             for i, (feat_val, train_m, train_s, name) in enumerate(zip(features, train_mean, train_std, feature_names)):
                 if train_s > 0:
-                    z_score = abs(feat_val - train_m) / train_s
-                    penalty = min(0.3, z_score * 0.1)  # Максимальный штраф 30%
+                    z_score_val = abs(feat_val - train_m) / train_s
+                    if hasattr(z_score_val, '__len__'):
+                        z_score_val = float(z_score_val)
+                    penalty = min(0.3, z_score_val * 0.1)
                 else:
                     penalty = 0.0
+                    z_score_val = 0.0
             
                 feature_penalties.append(penalty)
-                print(f"  {name}: val={feat_val:.4f}, train_mean={train_m:.4f}, z_score={(abs(feat_val - train_m) / (train_s + 1e-6)):.2f}, penalty={penalty:.3f}")
+                feature_details[name] = {
+                    'value': float(feat_val),
+                    'train_mean': float(train_m),
+                    'train_std': float(train_s),
+                    'z_score': float(z_score_val),
+                    'penalty': penalty
+                }
         
-            # Применяем штрафы
             total_penalty = sum(feature_penalties) / len(feature_penalties)
             feature_score = max(0.1, 1.0 - total_penalty)
-        
-            print(f"  Feature analysis score: {feature_score:.3f}")
-    
-        # 4. Адаптивное комбинирование оценок
+
+        # 4. Комбинирование оценок
         if len(self.training_data) >= 30:
-            # Для больших данных больше доверяем ML модели
             weights = {'knn': 0.5, 'distance': 0.3, 'features': 0.2}
         elif len(self.training_data) >= 15:
-            # Для средних данных балансируем
             weights = {'knn': 0.4, 'distance': 0.4, 'features': 0.2}
         else:
-            # Для малых данных больше доверяем расстояниям
             weights = {'knn': 0.2, 'distance': 0.6, 'features': 0.2}
-    
-        # Финальная оценка
+
         final_probability = (
             weights['knn'] * knn_probability +
             weights['distance'] * distance_score +
             weights['features'] * feature_score
         )
-    
-        print(f"\nФИНАЛЬНЫЕ ОЦЕНКИ:")
-        print(f"  KNN: {knn_probability:.3f} (вес: {weights['knn']})")
-        print(f"  Distance: {distance_score:.3f} (вес: {weights['distance']})")
-        print(f"  Features: {feature_score:.3f} (вес: {weights['features']})")
-        print(f"  Final probability: {final_probability:.3f}")
-        print(f"  Threshold: {threshold}")
-    
+
         # Принятие решения
         is_authenticated = final_probability >= threshold
-    
-        print(f"  РЕЗУЛЬТАТ: {'ПРИНЯТ' if is_authenticated else 'ОТКЛОНЕН'}")
-        print(f"=== КОНЕЦ АУТЕНТИФИКАЦИИ ===\n")
-    
-        return is_authenticated, final_probability
+
+        # Детальная статистика
+        detailed_stats = {
+            'knn_confidence': knn_probability,
+            'distance_score': distance_score,
+            'feature_score': feature_score,
+            'final_confidence': final_probability,
+            'threshold': threshold,
+            'weights': weights,
+            'distance_details': distance_details,
+            'feature_details': feature_details,
+            'training_samples': len(self.training_data) if hasattr(self, 'training_data') else 0
+        }
+
+        if verbose:
+            print(f"\nФИНАЛЬНЫЕ ОЦЕНКИ:")
+            print(f"  KNN: {knn_probability:.3f} (вес: {weights['knn']})")
+            print(f"  Distance: {distance_score:.3f} (вес: {weights['distance']})")
+            print(f"  Features: {feature_score:.3f} (вес: {weights['features']})")
+            print(f"  Final: {final_probability:.3f} (порог: {threshold})")
+            print(f"  РЕЗУЛЬТАТ: {'ПРИНЯТ' if is_authenticated else 'ОТКЛОНЕН'}")
+            print(f"=== КОНЕЦ АУТЕНТИФИКАЦИИ ===\n")
+
+        return is_authenticated, final_probability, detailed_stats
     
     def _generate_synthetic_negatives(self, X_positive: np.ndarray, factor: float = 1.5) -> np.ndarray:
-        """Генерация ЭКСТРЕМАЛЬНО отличающихся негативных примеров"""
+        """Генерация РЕАЛИСТИЧНЫХ негативных примеров для обучения"""
         n_samples = len(X_positive)
         n_features = X_positive.shape[1]
-    
+
         # Анализируем ТВОИ данные
         mean = np.mean(X_positive, axis=0)
         std = np.std(X_positive, axis=0)
         min_vals = np.min(X_positive, axis=0)
         max_vals = np.max(X_positive, axis=0)
-    
+
         print(f"\n🔍 АНАЛИЗ ТВОИХ ДАННЫХ:")
         print(f"  Удержание клавиш: {mean[0]*1000:.1f} ± {std[0]*1000:.1f} мс")
         print(f"  Время между клавишами: {mean[2]*1000:.1f} ± {std[2]*1000:.1f} мс")
         print(f"  Скорость печати: {mean[4]:.1f} ± {std[4]:.1f} кл/с")
         print(f"  Общее время: {mean[5]:.1f} ± {std[5]:.1f} сек")
-    
+
         synthetic_samples = []
-    
-        # 1. ЧЕРЕПАХИ (в 20 раз медленнее)
-        print("Создаем ЧЕРЕПАХ...")
-        for i in range(n_samples // 2):
-            sample = np.array([
-                mean[0] * np.random.uniform(15, 25),    # удержание в 15-25 раз дольше
-                mean[1] * np.random.uniform(10, 20),    # вариативность удержания  
-                mean[2] * np.random.uniform(20, 40),    # паузы в 20-40 раз дольше
-                mean[3] * np.random.uniform(15, 30),    # вариативность пауз
-                mean[4] * np.random.uniform(0.02, 0.08), # скорость в 12-50 раз медленнее
-                mean[5] * np.random.uniform(15, 30)     # время в 15-30 раз больше
-            ])
-            synthetic_samples.append(sample)
-    
-        # 2. ГЕПАРДЫ (в 20 раз быстрее)  
-        print("Создаем ГЕПАРДОВ...")
-        for i in range(n_samples // 2):
-            sample = np.array([
-                mean[0] * np.random.uniform(0.02, 0.08), # удержание в 12-50 раз короче
-                mean[1] * np.random.uniform(0.05, 0.15), # низкая вариативность
-                mean[2] * np.random.uniform(0.01, 0.05), # паузы в 20-100 раз короче
-                mean[3] * np.random.uniform(0.02, 0.10), # очень стабильно
-                mean[4] * np.random.uniform(15, 40),     # скорость в 15-40 раз быстрее
-                mean[5] * np.random.uniform(0.05, 0.20)  # время в 5-20 раз меньше
-            ])
-            synthetic_samples.append(sample)
-    
-        # 3. РОБОТЫ (нулевая вариативность)
-        print("Создаем РОБОТОВ...")
-        for i in range(n_samples // 3):
-            base_dwell = np.random.uniform(0.01, 0.30)
-            base_flight = np.random.uniform(0.01, 0.50)
-            sample = np.array([
-                base_dwell,                             # фиксированное удержание
-                base_dwell * 0.001,                     # почти нет вариативности
-                base_flight,                            # фиксированные паузы  
-                base_flight * 0.001,                    # почти нет вариативности
-                1.0 / (base_dwell + base_flight + 0.01), # математически точная скорость
-                43 * (base_dwell + base_flight)         # точное время для 43 символов
-            ])
-            synthetic_samples.append(sample)
-    
-        # 4. ХАОС (огромная вариативность)
-        print("Создаем ХАОС...")
-        for i in range(n_samples // 3):
-            # Основные значения в диапазоне твоих, но вариативность ОГРОМНАЯ
-            base_dwell = mean[0] * np.random.uniform(0.5, 2.0)
-            base_flight = mean[2] * np.random.uniform(0.3, 3.0)
+
+        # Стратегия 1: Близкие конкуренты (25%) - труднее всего отличить
+        close_count = n_samples // 4
+        print(f"Создаем {close_count} БЛИЗКИХ КОНКУРЕНТОВ...")
+        for i in range(close_count):
+            # Небольшие, но систематические отличия в 1-2 признаках
+            sample = mean.copy()
         
-            sample = np.array([
-                base_dwell,                             # среднее удержание
-                base_dwell * np.random.uniform(5, 15),  # ОГРОМНАЯ вариативность удержания
-                base_flight,                            # среднее между клавишами
-                base_flight * np.random.uniform(8, 20), # ОГРОМНАЯ вариативность пауз
-                mean[4] * np.random.uniform(0.3, 3.0),  # непредсказуемая скорость
-                mean[5] * np.random.uniform(0.5, 4.0)   # непредсказуемое время
-            ])
+            # Выбираем 1-2 признака для изменения
+            features_to_change = np.random.choice(6, size=np.random.randint(1, 3), replace=False)
+        
+            for feat_idx in features_to_change:
+                if feat_idx in [0, 1]:  # время удержания
+                    factor = np.random.choice([0.7, 1.4])  # быстрее или медленнее удержание
+                elif feat_idx in [2, 3]:  # время между клавишами
+                    factor = np.random.choice([0.6, 1.6])  # быстрее или медленнее переходы
+                elif feat_idx == 4:  # скорость
+                    factor = np.random.choice([0.8, 1.3])  # немного другая скорость
+                else:  # общее время
+                    factor = np.random.choice([0.75, 1.35])
+            
+                sample[feat_idx] = mean[feat_idx] * factor
+        
+            # Добавляем небольшой шум
+            noise = np.random.normal(0, std * 0.3)
+            sample = sample + noise
+            sample = np.maximum(sample, mean * 0.1)  # не даем стать слишком маленькими
             synthetic_samples.append(sample)
-    
-        # 5. ИНОПЛАНЕТЯНЕ (из другой вселенной)
-        print("Создаем ИНОПЛАНЕТЯН...")
-        for i in range(n_samples // 3):
-            sample = np.array([
-                np.random.uniform(0.005, 3.0),          # любое удержание
-                np.random.uniform(0.001, 2.0),          # любая вариативность
-                np.random.uniform(0.005, 8.0),          # любые паузы
-                np.random.uniform(0.001, 4.0),          # любая вариативность
-                np.random.uniform(0.1, 100.0),          # любая скорость
-                np.random.uniform(1.0, 200.0)           # любое время
-            ])
+
+        # Стратегия 2: Другой стиль печати (40%)
+        different_style_count = int(n_samples * 0.4)
+        print(f"Создаем {different_style_count} пользователей с ДРУГИМ СТИЛЕМ...")
+        for i in range(different_style_count):
+            # Более заметные, но реалистичные отличия
+            if np.random.random() < 0.5:
+                # "Охотники на клавиатуре" - быстрые и точные
+                style_factors = np.array([
+                    np.random.uniform(0.4, 0.8),     # быстрое удержание
+                    np.random.uniform(0.5, 0.9),     # стабильное удержание
+                    np.random.uniform(0.3, 0.7),     # быстрые переходы
+                    np.random.uniform(0.4, 0.8),     # стабильные переходы
+                    np.random.uniform(1.2, 2.5),     # высокая скорость
+                    np.random.uniform(0.4, 0.8)      # меньше времени
+                ])
+            else:
+                # "Размышляющие печатающие" - медленные и вдумчивые
+                style_factors = np.array([
+                    np.random.uniform(1.3, 2.5),     # долгое удержание
+                    np.random.uniform(1.1, 2.0),     # вариативное удержание
+                    np.random.uniform(1.5, 3.5),     # долгие паузы
+                    np.random.uniform(1.2, 2.8),     # вариативные паузы
+                    np.random.uniform(0.3, 0.8),     # низкая скорость
+                    np.random.uniform(1.3, 2.5)      # больше времени
+                ])
+        
+            sample = mean * style_factors
+            # Добавляем индивидуальный шум
+            noise = np.random.normal(0, std * 0.5)
+            sample = sample + noise
+            sample = np.maximum(sample, mean * 0.05)
             synthetic_samples.append(sample)
-    
+
+        # Стратегия 3: Адаптивные имитаторы (25%) - пытаются подражать, но не идеально
+        adaptive_count = int(n_samples * 0.25)
+        print(f"Создаем {adaptive_count} АДАПТИВНЫХ ИМИТАТОРОВ...")
+        for i in range(adaptive_count):
+            # Берем ваши средние значения как основу, но добавляем систематические ошибки
+            sample = mean.copy()
+        
+            # Имитатор не может точно воспроизвести все характеристики
+            # Он близок по 3-4 признакам, но ошибается в 2-3
+            success_rate = np.random.uniform(0.6, 0.8)  # успешность имитации
+        
+            for j in range(6):
+                if np.random.random() > success_rate:
+                    # Ошибка в имитации этого признака
+                    if j in [0, 2]:  # времена - сложно имитировать точно
+                        error_factor = np.random.uniform(0.6, 1.7)
+                    else:  # остальные признаки
+                        error_factor = np.random.uniform(0.7, 1.5)
+                    sample[j] = mean[j] * error_factor
+                else:
+                    # Успешная имитация - близко к вашим значениям
+                    sample[j] = mean[j] * np.random.uniform(0.9, 1.1)
+        
+            # Имитаторы обычно менее стабильны
+            instability_noise = np.random.normal(0, std * 0.8)
+            sample = sample + instability_noise
+            sample = np.maximum(sample, mean * 0.1)
+            synthetic_samples.append(sample)
+
+        # Стратегия 4: Экстремальные случаи (10%) - сильно отличающиеся
+        extreme_count = n_samples - close_count - different_style_count - adaptive_count
+        print(f"Создаем {extreme_count} ЭКСТРЕМАЛЬНЫХ пользователей...")
+        for i in range(extreme_count):
+            if np.random.random() < 0.5:
+                # Супер-быстрые
+                extreme_factors = np.array([
+                    np.random.uniform(0.1, 0.5),     # очень быстрое удержание
+                    np.random.uniform(0.2, 0.6),     # низкая вариативность
+                    np.random.uniform(0.05, 0.3),    # очень быстрые переходы
+                    np.random.uniform(0.1, 0.5),     # стабильные переходы
+                    np.random.uniform(3.0, 8.0),     # очень высокая скорость
+                    np.random.uniform(0.1, 0.4)      # очень мало времени
+                ])
+            else:
+                # Супер-медленные
+                extreme_factors = np.array([
+                    np.random.uniform(3.0, 8.0),     # очень долгое удержание
+                    np.random.uniform(2.5, 6.0),     # очень высокая вариативность
+                    np.random.uniform(4.0, 12.0),    # очень долгие паузы
+                    np.random.uniform(3.0, 8.0),     # очень вариативные паузы
+                    np.random.uniform(0.1, 0.4),     # очень низкая скорость
+                    np.random.uniform(3.0, 8.0)      # очень много времени
+                ])
+        
+            sample = mean * extreme_factors
+            noise = np.random.normal(0, std * 0.3)
+            sample = sample + noise
+            sample = np.maximum(sample, mean * 0.01)
+            synthetic_samples.append(sample)
+
         result = np.array(synthetic_samples)
-    
-        # Проверяем расстояния
+
+        # Проверяем качество негативных примеров
         from sklearn.metrics.pairwise import euclidean_distances
         distances = euclidean_distances(result, X_positive)
         min_distances = np.min(distances, axis=1)
-    
-        print(f"\n📊 СТАТИСТИКА НЕГАТИВНЫХ ПРИМЕРОВ:")
+
+        print(f"\n📊 СТАТИСТИКА РЕАЛИСТИЧНЫХ НЕГАТИВНЫХ ПРИМЕРОВ:")
         print(f"  Создано: {len(result)} образцов")
-        print(f"  Минимальное расстояние до твоих данных: {np.min(min_distances):.2f}")
-        print(f"  Среднее расстояние: {np.mean(min_distances):.2f}")
-        print(f"  Максимальное расстояние: {np.max(min_distances):.2f}")
+        print(f"  Минимальное расстояние до твоих данных: {np.min(min_distances):.3f}")
+        print(f"  Среднее расстояние: {np.mean(min_distances):.3f}")
+        print(f"  Максимальное расстояние: {np.max(min_distances):.3f}")
     
-        # Убираем примеры, которые слишком близко к твоим данным
-        threshold = np.mean(min_distances)  # Средний порог
-        far_indices = min_distances >= threshold
-        result_filtered = result[far_indices]
+        # Категоризация по сложности
+        very_close = np.sum(min_distances < np.std(min_distances) * 0.5)
+        close = np.sum((min_distances >= np.std(min_distances) * 0.5) & 
+                    (min_distances < np.mean(min_distances)))
+        far = len(min_distances) - very_close - close
     
-        print(f"  После фильтрации: {len(result_filtered)} образцов (убрали слишком близкие)")
-        print(f"  Минимальное расстояние после фильтрации: {np.min(min_distances[far_indices]):.2f}")
+        print(f"  Очень близкие (трудные): {very_close}")
+        print(f"  Умеренно близкие: {close}")
+        print(f"  Далекие (легкие): {far}")
+
+        # Убираем слишком близкие примеры (которые могут быть ошибочно приняты)
+        distance_threshold = np.percentile(min_distances, 20)  # убираем 20% самых близких
+        good_indices = min_distances >= distance_threshold
+        result_filtered = result[good_indices]
+
+        print(f"  После фильтрации слишком близких: {len(result_filtered)} образцов")
+    
+        if len(result_filtered) < len(result) * 0.7:  # если убрали больше 30%
+            print("  Предупреждение: убрано много близких примеров - возможно, нужно больше разнообразия")
     
         return result_filtered
     

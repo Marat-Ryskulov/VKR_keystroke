@@ -68,7 +68,7 @@ class ModelManager:
         
         return True, accuracy, f"Модель успешно обучена с точностью {accuracy:.2%}"
     
-    def authenticate_user(self, user_id: int, keystroke_features: dict) -> Tuple[bool, float, str]:
+    def authenticate_user(self, user_id: int, keystroke_features: dict, verbose: bool = False) -> Tuple[bool, float, str]:
         """
         Аутентификация пользователя по динамике нажатий
         Возвращает: (успех, уверенность, сообщение)
@@ -98,7 +98,11 @@ class ModelManager:
             feature_vector_norm = feature_vector
         
         # Аутентификация
-        is_authenticated, confidence = classifier.authenticate(feature_vector_norm, THRESHOLD_ACCURACY)
+        is_authenticated, confidence = classifier.authenticate(
+            feature_vector_norm, 
+            THRESHOLD_ACCURACY,
+            verbose=verbose  # ← ДОБАВИТЬ ЭТУ СТРОКУ
+        )
         
         if is_authenticated:
             message = f"Аутентификация успешна (уверенность: {confidence:.2%})"
@@ -175,3 +179,40 @@ class ModelManager:
             })
         
         return info
+    
+
+    def authenticate_user_detailed(self, user_id: int, keystroke_features: dict) -> Tuple[bool, float, dict]:
+        """
+        Аутентификация с детальной статистикой
+        """
+        classifier = self._get_user_model(user_id)
+        if classifier is None:
+            return False, 0.0, {}
+    
+        # Подготовка вектора признаков
+        feature_vector = np.array([
+            keystroke_features.get('avg_dwell_time', 0),
+            keystroke_features.get('std_dwell_time', 0),
+            keystroke_features.get('avg_flight_time', 0),
+            keystroke_features.get('std_flight_time', 0),
+            keystroke_features.get('typing_speed', 0),
+            keystroke_features.get('total_typing_time', 0)
+        ])
+    
+        # Нормализация признаков
+        if classifier.normalization_stats:
+            feature_vector_norm = self.feature_extractor.apply_normalization(
+                feature_vector.reshape(1, -1), 
+                classifier.normalization_stats
+            ).flatten()
+        else:
+            feature_vector_norm = feature_vector
+    
+        # Аутентификация с детальной статистикой
+        is_authenticated, confidence, detailed_stats = classifier.authenticate(
+            feature_vector_norm, 
+            THRESHOLD_ACCURACY,
+            verbose=True
+        )
+    
+        return is_authenticated, confidence, detailed_stats
