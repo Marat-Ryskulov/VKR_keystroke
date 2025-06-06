@@ -123,6 +123,25 @@ class DatabaseManager:
                 users.append(User.from_dict(dict(row)))
             return users
     
+    def update_user(self, user: User):
+        """Обновление данных пользователя"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE users 
+                SET username = ?, password_hash = ?, salt = ?, 
+                    is_trained = ?, training_samples = ?, last_login = ?
+                WHERE id = ?
+            ''', (
+                user.username,
+                user.password_hash,
+                user.salt,
+                int(user.is_trained),
+                user.training_samples,
+                user.last_login.isoformat() if user.last_login else None,
+                user.id
+            ))
+    
     def update_user_password(self, user_id: int, new_password_hash: str, new_salt: str):
         """Обновление пароля пользователя"""
         with self.get_connection() as conn:
@@ -286,3 +305,45 @@ class DatabaseManager:
         except PermissionError:
             # Если файл открыт в другой программе, просто пропускаем
             print(f"Предупреждение: не удалось записать в {filepath} - файл может быть открыт")
+
+
+    def debug_user_samples(self, user_id: int):
+        """Отладочная информация о образцах пользователя"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+        
+            # Все образцы с флагом is_training
+            cursor.execute('''
+                SELECT timestamp, is_training, session_id
+                FROM keystroke_samples 
+                WHERE user_id = ?
+                ORDER BY timestamp
+            ''', (user_id,))
+        
+            samples = cursor.fetchall()
+        
+            print(f"\n=== ОТЛАДКА ДАННЫХ ПОЛЬЗОВАТЕЛЯ {user_id} ===")
+            print(f"Всего записей в БД: {len(samples)}")
+        
+            training_count = 0
+            auth_count = 0
+        
+            for i, sample in enumerate(samples, 1):
+                timestamp = sample['timestamp']
+                is_training = sample['is_training'] 
+                session_id = sample['session_id'][:8]  # первые 8 символов
+            
+                if is_training:
+                    training_count += 1
+                    sample_type = "ОБУЧЕНИЕ"
+                else:
+                    auth_count += 1
+                    sample_type = "АУТЕНТИФИКАЦИЯ"
+                
+                print(f"{i:2d}. {timestamp[:19]} | {sample_type:>13} | {session_id}")
+        
+            print(f"\nИТОГО:")
+            print(f"  Обучающих образцов: {training_count}")
+            print(f"  Попыток аутентификации: {auth_count}")
+            print(f"  Всего: {len(samples)}")
+            print(f"=== КОНЕЦ ОТЛАДКИ ===\n")
