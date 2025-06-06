@@ -33,42 +33,50 @@ class KeystrokeData:
     def calculate_features(self) -> Dict[str, float]:
         """Вычисление признаков из событий клавиш"""
         if len(self.key_events) < 2:
+            print(f"Недостаточно событий для расчета признаков: {len(self.key_events)}")
             return {}
-        
+    
         dwell_times = []  # Время удержания клавиш
         flight_times = []  # Время между клавишами
-        
+    
         # Группировка событий по клавишам
         key_press_times = {}
         key_release_times = {}
-        
+    
+        print(f"Обрабатываем {len(self.key_events)} событий")
+    
         for event in self.key_events:
             if event.event_type == 'press':
                 key_press_times[event.key] = event.timestamp
             elif event.event_type == 'release':
                 key_release_times[event.key] = event.timestamp
-        
+    
         # Вычисление времени удержания
         for key in key_press_times:
             if key in key_release_times:
                 dwell_time = key_release_times[key] - key_press_times[key]
-                dwell_times.append(dwell_time)
-        
+                if dwell_time > 0:  # Проверяем корректность
+                    dwell_times.append(dwell_time)
+    
         # Вычисление времени между нажатиями
         press_events = sorted([e for e in self.key_events if e.event_type == 'press'], 
                             key=lambda x: x.timestamp)
-        
+    
         for i in range(1, len(press_events)):
             flight_time = press_events[i].timestamp - press_events[i-1].timestamp
-            flight_times.append(flight_time)
-        
+            if flight_time > 0:  # Проверяем корректность
+                flight_times.append(flight_time)
+    
         # Вычисление общей скорости печати
-        if press_events:
+        if len(press_events) >= 2:
             total_time = press_events[-1].timestamp - press_events[0].timestamp
             typing_speed = len(press_events) / total_time if total_time > 0 else 0
         else:
             typing_speed = 0
-        
+            total_time = 0
+    
+        print(f"Dwell times: {len(dwell_times)}, Flight times: {len(flight_times)}")
+    
         # Формирование вектора признаков
         features = {
             'avg_dwell_time': sum(dwell_times) / len(dwell_times) if dwell_times else 0,
@@ -76,9 +84,11 @@ class KeystrokeData:
             'avg_flight_time': sum(flight_times) / len(flight_times) if flight_times else 0,
             'std_flight_time': self._std(flight_times) if len(flight_times) > 1 else 0,
             'typing_speed': typing_speed,
-            'total_typing_time': total_time if press_events else 0
+            'total_typing_time': total_time
         }
-        
+    
+        print(f"Рассчитанные признаки: {features}")
+    
         self.features = features
         return features
     
