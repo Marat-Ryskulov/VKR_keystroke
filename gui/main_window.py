@@ -159,35 +159,40 @@ class MainWindow:
     
     def show_user_dashboard(self):
         """Отображение панели пользователя"""
+
+        # 🔍 ОТЛАДКА: показываем что в базе данных
+        print(f"\n=== ОТЛАДКА для пользователя {self.current_user.username} ===")
+        self.password_auth.db.debug_user_samples(self.current_user.id)
+
         self.clear_main_frame()
-        
+    
         # Заголовок с именем пользователя
         header_frame = ttk.Frame(self.main_frame)
         header_frame.pack(fill=tk.X, pady=(0, 20))
-        
+    
         welcome_label = ttk.Label(
             header_frame,
             text=f"Добро пожаловать, {self.current_user.username}!",
             style='Header.TLabel'
         )
         welcome_label.pack()
-        
+    
         # Информация о статусе обучения
         status_frame = ttk.LabelFrame(self.main_frame, text="Статус системы", padding=15)
         status_frame.pack(fill=tk.X, pady=10)
-        
+    
         training_progress = self.keystroke_auth.get_training_progress(self.current_user)
-        
+    
         if self.current_user.is_trained:
             status_text = "✓ Модель обучена и готова к использованию"
             status_style = 'Success.TLabel'
         else:
             status_text = f"⚠ Требуется обучение ({training_progress['current_samples']}/{training_progress['required_samples']} образцов)"
             status_style = 'Error.TLabel'
-        
+    
         status_label = ttk.Label(status_frame, text=status_text, style=status_style)
         status_label.pack()
-        
+    
         # Прогресс-бар для обучения
         if not self.current_user.is_trained:
             progress_bar = ttk.Progressbar(
@@ -197,26 +202,38 @@ class MainWindow:
                 length=300
             )
             progress_bar.pack(pady=10)
-        
+    
         # Статистика
         stats_frame = ttk.LabelFrame(self.main_frame, text="Статистика", padding=15)
         stats_frame.pack(fill=tk.X, pady=10)
+    
+        try:
+            # ✅ ИСПРАВЛЕНИЕ: Используем метод, который считает ТОЛЬКО обучающие образцы
+            training_samples_count = len(self.db.get_user_training_samples(self.current_user.id))
         
-        auth_stats = self.keystroke_auth.get_authentication_stats(self.current_user)
+            # ✅ Считаем попытки аутентификации отдельно
+            all_samples = self.db.get_user_keystroke_samples(self.current_user.id, training_only=False)
+            auth_attempts = len([s for s in all_samples if hasattr(s, 'timestamp')])
+            auth_attempts_only = auth_attempts - training_samples_count
         
-        stats_text = f"""
-        Обучающих образцов: {auth_stats['training_samples']}
-        Попыток аутентификации: {auth_stats['authentication_attempts']}
-        Дата регистрации: {self.current_user.created_at.strftime('%d.%m.%Y')}
-        """
+            stats_text = f"""
+    Обучающих образцов: {training_samples_count}
+    Попыток аутентификации: {auth_attempts_only}
+    Всего записей: {auth_attempts}
+    Дата регистрации: {self.current_user.created_at.strftime('%d.%m.%Y')}
+            """
         
-        stats_label = ttk.Label(stats_frame, text=stats_text.strip(), justify=tk.LEFT)
-        stats_label.pack()
+            stats_label = ttk.Label(stats_frame, text=stats_text.strip(), justify=tk.LEFT)
+            stats_label.pack()
         
+        except Exception as e:
+            error_label = ttk.Label(stats_frame, text=f"Ошибка загрузки статистики: {str(e)}", style='Error.TLabel')
+            error_label.pack()
+    
         # Кнопки действий
         actions_frame = ttk.Frame(self.main_frame)
         actions_frame.pack(fill=tk.X, pady=20)
-        
+    
         if not self.current_user.is_trained:
             train_btn = ttk.Button(
                 actions_frame,
@@ -226,6 +243,7 @@ class MainWindow:
             )
             train_btn.pack(pady=5)
         else:
+            # Кнопки для обученной модели
             test_btn = ttk.Button(
                 actions_frame,
                 text="Тест аутентификации",
@@ -233,7 +251,7 @@ class MainWindow:
                 style='Big.TButton'
             )
             test_btn.pack(pady=5)
-            
+        
             stats_btn = ttk.Button(
                 actions_frame,
                 text="Статистика модели",
@@ -241,14 +259,15 @@ class MainWindow:
                 style='Big.TButton'
             )
             stats_btn.pack(pady=5)
-            
+        
             retrain_btn = ttk.Button(
                 actions_frame,
                 text="Переобучить модель",
                 command=self.reset_and_retrain
             )
             retrain_btn.pack(pady=5)
-        
+    
+        # Общие кнопки (всегда видны)
         # Кнопка экспорта данных
         export_btn = ttk.Button(
             actions_frame,
@@ -256,7 +275,7 @@ class MainWindow:
             command=self.open_csv_folder
         )
         export_btn.pack(pady=5)
-        
+    
         logout_btn = ttk.Button(
             actions_frame,
             text="Выйти",
@@ -294,14 +313,31 @@ class MainWindow:
     
     def on_training_complete(self):
         """Обработка завершения обучения"""
-        # Обновляем информацию о пользователе
-        self.current_user = self.password_auth.db.get_user_by_username(self.current_user.username)
+        # Обновляем информацию о пользователе из БД
+        updated_user = self.password_auth.db.get_user_by_username(self.current_user.username)
+        if updated_user:
+            self.current_user = updated_user
         self.show_user_dashboard()
     
     def show_model_stats(self):
         """Показать статистику модели"""
-        from gui.model_stats_window import ModelStatsWindow
-        ModelStatsWindow(self.root, self.current_user)
+        if not self.current_user:
+            messagebox.showwarning("Предупреждение", "Пользователь не выбран")
+            return
+    
+        if not self.current_user.is_trained:
+            messagebox.showwarning("Предупреждение", "Модель пользователя не обучена")
+            return
+    
+        try:
+            from gui.model_stats_window import ModelStatsWindow
+            # Используем self.root вместо self.window
+            ModelStatsWindow(self.root, self.current_user, self.keystroke_auth)
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка при открытии статистики: {str(e)}")
+            print(f"Ошибка статистики: {e}")
+            import traceback
+            traceback.print_exc()
     
     def open_csv_folder(self):
         """Открытие папки с CSV файлами"""

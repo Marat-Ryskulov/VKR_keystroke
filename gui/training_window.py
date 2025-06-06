@@ -1,4 +1,4 @@
-# gui/training_window.py - Окно для обучения системы динамике нажатий
+# gui/training_window.py - Улучшенное окно обучения
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -21,9 +21,9 @@ class TrainingWindow:
         # Создание окна
         self.window = tk.Toplevel(parent)
         self.window.title("Обучение системы")
-        self.window.geometry("700x750")
+        self.window.geometry("700x800")
         self.window.resizable(True, True)
-        self.window.minsize(600, 700)
+        self.window.minsize(600, 750)
         
         # Модальное окно
         self.window.transient(parent)
@@ -36,13 +36,20 @@ class TrainingWindow:
         self.session_id = None
         self.is_recording = False
         self.current_sample = 0
-        self.training_text = PANGRAM  # Используем панграмму из конфига
+        self.training_text = PANGRAM
+        
+        # Нормализованный текст для сравнения (без пробелов и в нижнем регистре)
+        self.normalized_target = self._normalize_text(PANGRAM)
         
         # Создание интерфейса
         self.create_widgets()
         
         # Обновление прогресса
         self.update_progress()
+    
+    def _normalize_text(self, text: str) -> str:
+        """Нормализация текста - убираем пробелы и приводим к нижнему регистру"""
+        return text.lower().replace(" ", "")
     
     def center_window(self):
         """Центрирование окна"""
@@ -72,13 +79,19 @@ class TrainingWindow:
 
 "{PANGRAM}"
 
-Старайтесь печатать естественно, как вы обычно это делаете.
-Это займет примерно 10-15 минут."""
+ВАЖНЫЕ ПРАВИЛА:
+• Печатайте в своем обычном темпе - НЕ торопитесь
+• Регистр букв не важен (можно печатать как угодно)
+• Пробелы можно пропускать или ставить где угодно
+• Если ошибетесь - ввод сбросится автоматически
+• Делайте небольшие паузы между образцами (2-3 сек)
+
+Это займет примерно 15-20 минут."""
         
         info_label = ttk.Label(
             main_frame,
             text=info_text,
-            wraplength=400,
+            wraplength=450,
             justify=tk.CENTER
         )
         info_label.pack(pady=10)
@@ -114,6 +127,15 @@ class TrainingWindow:
         )
         self.pangram_label.pack(pady=(0, 10))
         
+        # Отображение прогресса ввода
+        self.typing_progress_label = ttk.Label(
+            input_frame,
+            text="",
+            font=(FONT_FAMILY, 10, 'italic'),
+            foreground='gray'
+        )
+        self.typing_progress_label.pack(pady=(0, 5))
+        
         self.text_entry = ttk.Entry(
             input_frame,
             width=50,
@@ -135,7 +157,8 @@ class TrainingWindow:
         tips_text = """• Печатайте в своем обычном темпе
 • Не пытайтесь печатать идеально одинаково
 • Расслабьтесь и печатайте естественно
-• Если ошиблись - это нормально, продолжайте"""
+• При ошибке ввод сбросится - это нормально
+• Текст можно печатать в любом регистре"""
         
         tips_label = ttk.Label(
             tips_frame,
@@ -229,26 +252,89 @@ class TrainingWindow:
                 )
     
     def check_input(self, event=None):
-        """Проверка готовности ввода"""
-        # Проверяем, совпадает ли введенный текст с панграммой
-        if self.text_entry.get() == PANGRAM:
+        """Проверка готовности ввода с валидацией в реальном времени"""
+        current_text = self.text_entry.get()
+        normalized_current = self._normalize_text(current_text)
+        
+        # Проверяем, является ли текущий ввод правильным префиксом целевого текста
+        if len(normalized_current) > len(self.normalized_target):
+            # Ввод слишком длинный - сбрасываем
+            self._reset_input("Текст слишком длинный. Начните заново.")
+            return
+        
+        # Проверяем совпадение символов
+        is_correct_prefix = True
+        for i, char in enumerate(normalized_current):
+            if i >= len(self.normalized_target) or char != self.normalized_target[i]:
+                is_correct_prefix = False
+                break
+        
+        if not is_correct_prefix:
+            # Ошибка в вводе - сбрасываем
+            self._reset_input("Ошибка в тексте. Начните заново.")
+            return
+        
+        # Обновляем прогресс ввода
+        progress_text = f"Введено: {len(normalized_current)}/{len(self.normalized_target)} символов"
+        if len(normalized_current) > 0:
+            progress_text += f" | Последние: '{current_text[-min(10, len(current_text)):]}'"
+        self.typing_progress_label.config(text=progress_text)
+        
+        # Проверяем завершенность
+        if normalized_current == self.normalized_target:
             self.submit_btn.config(state=tk.NORMAL)
             self.status_label.config(
-                text="✓ Текст введен правильно",
+                text="✓ Текст введен правильно! Можно сохранить образец.",
                 foreground="green"
             )
         else:
             self.submit_btn.config(state=tk.DISABLED)
-            if len(self.text_entry.get()) > 0:
+            if len(normalized_current) > 0:
                 self.status_label.config(
-                    text="Введите текст точно как показано выше",
-                    foreground="orange"
+                    text="Продолжайте ввод...",
+                    foreground="blue"
                 )
+            else:
+                self.status_label.config(
+                    text="Начните ввод панграммы",
+                    foreground="black"
+                )
+    
+    def _reset_input(self, message: str):
+        """Сброс ввода при ошибке"""
+        # Останавливаем запись
+        if self.is_recording:
+            self.stop_recording()
+            if self.session_id:
+                # Отменяем текущую сессию без сохранения
+                if self.session_id in self.keystroke_auth.current_session:
+                    del self.keystroke_auth.current_session[self.session_id]
+                self.session_id = None
+        
+        # Очищаем поле
+        self.text_entry.delete(0, tk.END)
+        
+        # Показываем сообщение
+        self.status_label.config(text=message, foreground="red")
+        self.typing_progress_label.config(text="")
+        self.submit_btn.config(state=tk.DISABLED)
+        
+        # Через 2 секунды сбрасываем сообщение и начинаем заново
+        self.window.after(2000, self._clear_error_and_restart)
+    
+    def _clear_error_and_restart(self):
+        """Очистка ошибки и подготовка к новому вводу"""
+        self.status_label.config(text="Начните ввод панграммы заново", foreground="black")
+        self.text_entry.focus()
     
     def submit_sample(self):
         """Сохранение образца"""
-        if self.text_entry.get() != PANGRAM:
-            messagebox.showwarning("Предупреждение", "Введите панграмму точно как показано")
+        current_text = self.text_entry.get()
+        normalized_current = self._normalize_text(current_text)
+        
+        # Финальная проверка
+        if normalized_current != self.normalized_target:
+            messagebox.showwarning("Предупреждение", "Введите панграмму полностью и правильно")
             return
         
         if self.session_id and self.is_recording:
@@ -258,6 +344,16 @@ class TrainingWindow:
                 
                 # Завершение записи и сохранение
                 features = self.keystroke_auth.finish_recording(self.session_id, is_training=True)
+                
+                # Проверяем, что признаки были рассчитаны корректно
+                if not features or all(v == 0 for v in features.values()):
+                    messagebox.showwarning(
+                        "Предупреждение", 
+                        "Не удалось записать динамику нажатий. Попробуйте еще раз, печатая медленнее."
+                    )
+                    self.text_entry.delete(0, tk.END)
+                    self.text_entry.focus()
+                    return
                 
                 # Обновление счетчика
                 self.current_sample += 1
@@ -270,17 +366,33 @@ class TrainingWindow:
                 
                 # Очистка поля
                 self.text_entry.delete(0, tk.END)
+                self.typing_progress_label.config(text="")
                 
                 # Обновление прогресса
                 self.update_progress()
                 
-                # Фокус обратно на поле
-                self.text_entry.focus()
+                # Пауза перед следующим образцом
+                self.text_entry.config(state=tk.DISABLED)
+                self.status_label.config(
+                    text="Небольшая пауза... Готовьтесь к следующему образцу",
+                    foreground="blue"
+                )
+                
+                # Через 2 секунды разрешаем новый ввод
+                self.window.after(2000, self._enable_next_input)
                 
             except Exception as e:
                 messagebox.showerror("Ошибка", f"Ошибка при сохранении образца: {str(e)}")
+                self.text_entry.delete(0, tk.END)
+                self.text_entry.focus()
         else:
             messagebox.showwarning("Предупреждение", "Нет активной записи")
+    
+    def _enable_next_input(self):
+        """Разрешение ввода следующего образца"""
+        self.text_entry.config(state=tk.NORMAL)
+        self.text_entry.focus()
+        self.status_label.config(text="Готов к следующему образцу", foreground="black")
     
     def update_progress(self):
         """Обновление прогресса обучения"""
