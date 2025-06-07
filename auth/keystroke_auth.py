@@ -180,6 +180,23 @@ class KeystrokeAuthenticator:
             message = f"Аутентификация успешна (уверенность: {confidence:.1%})"
         else:
             message = f"Аутентификация отклонена (уверенность: {confidence:.1%})"
+
+        
+        # Сохранение попытки аутентификации в базу данных для статистики
+        try:
+            self.db.save_auth_attempt(
+                user_id=user.id,
+                session_id=session_id if session_id else 'unknown',
+                features=keystroke_features,
+                knn_confidence=detailed_stats.get('knn_confidence', 0),
+                distance_score=detailed_stats.get('distance_score', 0),
+                feature_score=detailed_stats.get('feature_score', 0),
+                final_confidence=confidence,
+                threshold=detailed_stats.get('threshold', 0.75),
+                result=is_authenticated
+            )
+        except Exception as e:
+            print(f"Ошибка сохранения попытки аутентификации: {e}")
     
         return is_authenticated, confidence, message
     
