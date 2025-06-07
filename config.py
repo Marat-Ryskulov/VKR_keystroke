@@ -40,3 +40,17 @@ KEYSTROKE_FEATURES = [
     'typing_speed',    # Общая скорость печати
     'pressure_time'    # Время нажатия (для анализа ритма)
 ]
+
+
+# Настройки для анализа и отладки
+DEBUG_MODE = True  # Включить подробные логи
+ENABLE_CSV_EXPORT = True  # Автоматический экспорт в CSV
+ENABLE_PERFORMANCE_TRACKING = True  # Отслеживание производительности
+
+# Пути для дополнительных данных
+TEMP_DIR = os.path.join(DATA_DIR, "temp")
+LOGS_DIR = os.path.join(DATA_DIR, "logs")
+
+# Создание дополнительных директорий
+os.makedirs(TEMP_DIR, exist_ok=True) 
+os.makedirs(LOGS_DIR, exist_ok=True)
