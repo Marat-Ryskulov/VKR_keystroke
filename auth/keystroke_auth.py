@@ -1,4 +1,4 @@
-# auth/keystroke_auth.py - Модуль аутентификации по динамике нажатий
+# auth/keystroke_auth.py - Исправленный модуль аутентификации по динамике нажатий
 
 from typing import Tuple, Optional, Dict
 from datetime import datetime
@@ -32,14 +32,17 @@ class KeystrokeAuthenticator:
             timestamp=datetime.now()
         )
         
+        print(f"🎬 Начата запись сессии: {session_id[:8]}")
         return session_id
     
     def record_key_event(self, session_id: str, key: str, event_type: str):
         """Запись события клавиши"""
         if session_id not in self.current_session:
+            print(f"⚠️ Сессия {session_id[:8]} не найдена!")
             raise ValueError("Сессия не найдена")
         
         self.current_session[session_id].add_key_event(key, event_type)
+        print(f"⌨️ Записано событие: {event_type} {key} в сессии {session_id[:8]}")
     
     def finish_recording(self, session_id: str, is_training: bool = False) -> Dict[str, float]:
         """
@@ -47,16 +50,22 @@ class KeystrokeAuthenticator:
         Возвращает словарь признаков
         """
         if session_id not in self.current_session:
+            print(f"❌ Сессия {session_id[:8]} не найдена при завершении!")
             raise ValueError("Сессия не найдена")
     
         keystroke_data = self.current_session[session_id]
+        
+        print(f"🏁 Завершение записи сессии {session_id[:8]}")
+        print(f"📊 Событий в сессии: {len(keystroke_data.key_events)}")
     
         # ВАЖНО: Всегда вычисляем признаки перед сохранением
         features = keystroke_data.calculate_features()
+        
+        print(f"🔢 Рассчитанные признаки: {features}")
     
         # Проверяем, что признаки были рассчитаны
-        if not features:
-            print("Предупреждение: Не удалось рассчитать признаки для образца")
+        if not features or all(v == 0 for v in features.values()):
+            print("⚠️ Предупреждение: Не удалось рассчитать признаки для образца")
             # Создаем пустые признаки для совместимости
             features = {
                 'avg_dwell_time': 0.0,
@@ -70,15 +79,24 @@ class KeystrokeAuthenticator:
     
         # Сохранение в БД если это обучающий образец
         if is_training:
-            self.db.save_keystroke_sample(keystroke_data, is_training=True)
+            try:
+                self.db.save_keystroke_sample(keystroke_data, is_training=True)
+                print(f"💾 Обучающий образец сохранен в БД")
+            except Exception as e:
+                print(f"❌ Ошибка сохранения в БД: {e}")
         
-            # Сохранение сырых данных о нажатиях
-            user = self.db.get_user_by_id(keystroke_data.user_id)
-            if user:
-                keystroke_data.save_raw_events_to_csv(user.id, user.username)
+                # Сохранение сырых данных о нажатиях
+                user = self.db.get_user_by_id(keystroke_data.user_id)
+                if user:
+                    try:
+                        keystroke_data.save_raw_events_to_csv(user.id, user.username)
+                        print(f"📁 CSV файл обновлен")
+                    except Exception as e:
+                        print(f"⚠️ Ошибка сохранения CSV: {e}")
     
         # Удаление из текущих сессий
         del self.current_session[session_id]
+        print(f"🗑️ Сессия {session_id[:8]} удалена из памяти")
     
         return features
     
@@ -89,12 +107,17 @@ class KeystrokeAuthenticator:
         if not user.is_trained:
             return False, 0.0, "Модель пользователя не обучена."
     
+        print(f"\n🔐 НАЧАЛО АУТЕНТИФИКАЦИИ пользователя {user.username}")
+        print(f"📊 Входящие признаки: {keystroke_features}")
+    
         # Аутентификация с получением детальной статистики
         is_authenticated, confidence, detailed_stats = self.model_manager.authenticate_user_detailed(
             user.id, keystroke_features
         )
     
-        # ПРОСТОЙ КОНСОЛЬНЫЙ АНАЛИЗ (РАБОТАЕТ ВСЕГДА)
+        print(f"🎯 Результат модели: {is_authenticated}, уверенность: {confidence:.3f}")
+    
+        # КОНСОЛЬНЫЙ АНАЛИЗ
         print(f"\n{'='*60}")
         print(f"🔍 АНАЛИЗ АУТЕНТИФИКАЦИИ - {user.username}")
         print(f"{'='*60}")
@@ -134,16 +157,17 @@ class KeystrokeAuthenticator:
         print()
     
         print("🎯 РЕШЕНИЕ СИСТЕМЫ:")
-        if confidence >= detailed_stats.get('threshold', 0.75):
-            print(f"✅ {confidence:.1%} ≥ {detailed_stats.get('threshold', 0.75):.1%} → ДОСТУП РАЗРЕШЕН")
+        threshold = detailed_stats.get('threshold', 0.75)
+        if confidence >= threshold:
+            print(f"✅ {confidence:.1%} ≥ {threshold:.1%} → ДОСТУП РАЗРЕШЕН")
             print("💡 Ваш стиль печати соответствует обученному профилю")
         else:
-            print(f"❌ {confidence:.1%} < {detailed_stats.get('threshold', 0.75):.1%} → ДОСТУП ЗАПРЕЩЕН")
+            print(f"❌ {confidence:.1%} < {threshold:.1%} → ДОСТУП ЗАПРЕЩЕН")
             print("💡 Стиль печати отличается от обученного профиля")
     
         print("="*60)
     
-        # Попытка открыть GUI окно (без критических ошибок)
+        # Сохранение данных для анализа
         try:
             # Сохраняем данные для возможного просмотра
             analysis_data = {
@@ -164,29 +188,32 @@ class KeystrokeAuthenticator:
             # Сохраняем в временный файл для визуализации
             import json
             import os
-            temp_dir = os.path.join(os.path.dirname(__file__), '..', 'temp')
+            from config import DATA_DIR
+            temp_dir = os.path.join(DATA_DIR, 'temp')
             os.makedirs(temp_dir, exist_ok=True)
         
             with open(os.path.join(temp_dir, 'last_auth_analysis.json'), 'w') as f:
                 json.dump(analysis_data, f, indent=2)
         
             print("💾 Данные анализа сохранены для детального просмотра")
-            print(f"📁 Файл: {os.path.join(temp_dir, 'last_auth_analysis.json')}")
         
         except Exception as e:
             print(f"⚠️ Не удалось сохранить данные анализа: {e}")
     
+        # Формируем сообщение
         if is_authenticated:
             message = f"Аутентификация успешна (уверенность: {confidence:.1%})"
         else:
             message = f"Аутентификация отклонена (уверенность: {confidence:.1%})"
 
-        
         # Сохранение попытки аутентификации в базу данных для статистики
         try:
+            # Генерируем session_id для попытки аутентификации
+            auth_session_id = self.security.generate_session_id()
+            
             self.db.save_auth_attempt(
                 user_id=user.id,
-                session_id=session_id if session_id else 'unknown',
+                session_id=auth_session_id,
                 features=keystroke_features,
                 knn_confidence=detailed_stats.get('knn_confidence', 0),
                 distance_score=detailed_stats.get('distance_score', 0),
@@ -195,8 +222,9 @@ class KeystrokeAuthenticator:
                 threshold=detailed_stats.get('threshold', 0.75),
                 result=is_authenticated
             )
+            print(f"📊 Попытка аутентификации записана в БД")
         except Exception as e:
-            print(f"Ошибка сохранения попытки аутентификации: {e}")
+            print(f"❌ Ошибка сохранения попытки аутентификации: {e}")
     
         return is_authenticated, confidence, message
     
@@ -205,57 +233,67 @@ class KeystrokeAuthenticator:
         Обучение модели пользователя
         Возвращает: (успех, точность, сообщение)
         """
-        return self.model_manager.train_user_model(user.id)
+        print(f"\n🎓 ЗАПУСК ОБУЧЕНИЯ МОДЕЛИ для пользователя {user.username}")
+        return self.model_manager.train_user_model(user.id, use_enhanced_training=False)
     
     def get_training_progress(self, user: User) -> Dict[str, any]:
         """Получение прогресса обучения пользователя"""
-        samples = self.db.get_user_keystroke_samples(user.id, training_only=True)
+        samples = self.db.get_user_training_samples(user.id)
         
         from config import MIN_TRAINING_SAMPLES
         
-        return {
+        progress = {
             'current_samples': len(samples),
             'required_samples': MIN_TRAINING_SAMPLES,
             'progress_percent': min(100, (len(samples) / MIN_TRAINING_SAMPLES) * 100),
             'is_ready': len(samples) >= MIN_TRAINING_SAMPLES,
             'is_trained': user.is_trained
         }
+        
+        print(f"📈 Прогресс обучения {user.username}: {progress['current_samples']}/{progress['required_samples']} образцов")
+        return progress
     
     def reset_user_model(self, user: User) -> Tuple[bool, str]:
         """Сброс модели пользователя и обучающих данных"""
         try:
+            print(f"🔄 Сброс модели пользователя {user.username}")
+            
             # Удаление модели
             self.model_manager.delete_user_model(user.id)
             
             # Удаление обучающих образцов из БД
-            # Здесь нужно добавить метод в DatabaseManager для удаления образцов
+            self.db.delete_user_samples(user.id)
             
             # Обновление статуса пользователя
             user.is_trained = False
             user.training_samples = 0
             self.db.update_user(user)
             
+            print(f"✅ Модель пользователя {user.username} успешно сброшена")
             return True, "Модель и обучающие данные успешно сброшены"
         except Exception as e:
+            print(f"❌ Ошибка сброса модели: {e}")
             return False, f"Ошибка при сбросе модели: {str(e)}"
     
     def get_authentication_stats(self, user: User) -> Dict[str, any]:
         """Получение статистики аутентификации пользователя"""
+        print(f"📊 Получение статистики для пользователя {user.username}")
     
-        # ✅ ПРАВИЛЬНО: Используем ОТДЕЛЬНЫЕ методы для разных типов данных
-    
-        # Обучающие образцы (is_training = 1)
+        # Обучающие образцы
         training_samples = self.db.get_user_training_samples(user.id)
     
-        # ВСЕ образцы
+        # ВСЕ образцы (включая попытки аутентификации, если они сохраняются как образцы)
         all_samples = self.db.get_user_keystroke_samples(user.id, training_only=False)
     
-        # Попытки аутентификации = все - обучающие
-        auth_attempts = len(all_samples) - len(training_samples)
+        # Попытки аутентификации из отдельной таблицы
+        auth_attempts = self.db.get_auth_attempts(user.id, limit=100)
     
-        return {
+        stats = {
             'total_samples': len(all_samples),
-            'training_samples': len(training_samples),  # ✅ ТОЛЬКО обучающие
-            'authentication_attempts': max(0, auth_attempts),  # ✅ ТОЛЬКО попытки входа
+            'training_samples': len(training_samples),
+            'authentication_attempts': len(auth_attempts),
             'model_info': self.model_manager.get_model_info(user.id)
         }
+        
+        print(f"📈 Статистика: {stats}")
+        return stats
