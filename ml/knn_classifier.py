@@ -95,7 +95,7 @@ class KNNAuthenticator:
         # 1. Основное предсказание KNN
         features_reshaped = features.reshape(1, -1)
         probabilities = self.model.predict_proba(features_reshaped)[0]
-    
+
         # Получаем базовую вероятность
         knn_probability = 0.0
         if len(probabilities) > 1 and 1.0 in self.model.classes_:
@@ -105,16 +105,16 @@ class KNNAuthenticator:
         # 2. Анализ расстояний
         distance_score = 0.0
         distance_details = {}
-    
+
         if hasattr(self, 'training_data') and self.training_data is not None:
             from sklearn.metrics.pairwise import euclidean_distances
-        
+    
             X_positive = self.training_data
             distances = euclidean_distances(features_reshaped, X_positive)[0]
-        
+    
             min_distance = np.min(distances)
             mean_distance = np.mean(distances)
-        
+    
             # Статистика обучающих данных
             if len(X_positive) > 1:
                 train_distances = euclidean_distances(X_positive, X_positive)
@@ -124,11 +124,11 @@ class KNNAuthenticator:
             else:
                 mean_train_distance = 1.0
                 std_train_distance = 0.5
-        
+    
             # Оценки расстояний
             norm_min = min_distance / (mean_train_distance + 1e-6)
             distance_score = max(0, 1.0 - norm_min * 0.8)
-        
+    
             distance_details = {
                 'min_distance': min_distance,
                 'mean_distance': mean_distance,
@@ -139,15 +139,15 @@ class KNNAuthenticator:
         # 3. Анализ признаков
         feature_score = 1.0
         feature_details = {}
-    
+
         if hasattr(self, 'training_data') and self.training_data is not None:
             X_positive = self.training_data
             train_mean = np.mean(X_positive, axis=0)
             train_std = np.std(X_positive, axis=0)
-        
+    
             feature_penalties = []
             feature_names = ['avg_dwell', 'std_dwell', 'avg_flight', 'std_flight', 'speed', 'total_time']
-        
+    
             for i, (feat_val, train_m, train_s, name) in enumerate(zip(features, train_mean, train_std, feature_names)):
                 if train_s > 0:
                     z_score_val = abs(feat_val - train_m) / train_s
@@ -157,7 +157,7 @@ class KNNAuthenticator:
                 else:
                     penalty = 0.0
                     z_score_val = 0.0
-            
+        
                 feature_penalties.append(penalty)
                 feature_details[name] = {
                     'value': float(feat_val),
@@ -166,7 +166,7 @@ class KNNAuthenticator:
                     'z_score': float(z_score_val),
                     'penalty': penalty
                 }
-        
+    
             total_penalty = sum(feature_penalties) / len(feature_penalties)
             feature_score = max(0.1, 1.0 - total_penalty)
 
