@@ -298,20 +298,12 @@ class ModelStatsWindow:
     def load_performance_metrics(self):
         """Практический расчет метрик на основе реальных данных + симуляция"""
         try:
-            # ДОБАВИТЬ ЭТУ ПРОВЕРКУ В НАЧАЛО МЕТОДА:
-            if not hasattr(self, 'db') or self.db is None:
-                # Получаем доступ к базе данных через parent window
-                if hasattr(self.parent, 'db'):
-                    self.db = self.parent.db
-                elif hasattr(self.parent, 'parent') and hasattr(self.parent.parent, 'db'):
-                    self.db = self.parent.parent.db
-                else:
-                    # Создаем подключение к базе
-                    from utils.database import Database
-                    self.db = Database()
+            # Используем базу данных из keystroke_auth
+            db = self.keystroke_auth.db
+
 
             # Получаем реальные попытки аутентификации
-            auth_attempts = self.db.get_auth_attempts(self.user.id, limit=50)
+            auth_attempts = db.get_auth_attempts(self.user.id, limit=50)
         
             if len(auth_attempts) < 3:
                 metrics_info = f"""НЕДОСТАТОЧНО ДАННЫХ ДЛЯ АНАЛИЗА

@@ -452,37 +452,3 @@ class AuthenticationAnalysisWindow:
 
 # Добавить в файл auth/keystroke_auth.py:
 
-def authenticate(self, user: User, keystroke_features: Dict[str, float]) -> Tuple[bool, float, str]:
-    """
-    Второй фактор аутентификации с детальным анализом
-    """
-    if not user.is_trained:
-        return False, 0.0, "Модель пользователя не обучена."
-    
-    # Аутентификация с получением детальной статистики
-    is_authenticated, confidence, detailed_stats = self.model_manager.authenticate_user_detailed(
-        user.id, keystroke_features
-    )
-    
-    # НОВОЕ: Показываем окно анализа после аутентификации
-    try:
-        from gui.auth_analysis_window import AuthenticationAnalysisWindow
-        
-        # Открываем окно анализа (НЕ блокирующее)
-        analysis_window = AuthenticationAnalysisWindow(
-            parent=None,  # или передать главное окно
-            user=user,
-            keystroke_features=keystroke_features,
-            detailed_stats=detailed_stats,
-            final_result=is_authenticated,
-            final_confidence=confidence
-        )
-    except Exception as e:
-        print(f"Ошибка открытия окна анализа: {e}")
-    
-    if is_authenticated:
-        message = f"Аутентификация успешна (уверенность: {confidence:.1%})"
-    else:
-        message = f"Аутентификация отклонена (уверенность: {confidence:.1%})"
-    
-    return is_authenticated, confidence, message

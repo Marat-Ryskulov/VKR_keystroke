@@ -1,16 +1,17 @@
-# gui/training_window.py - Улучшенное окно обучения
+# gui/enhanced_training_window.py - Продвинутое окно обучения с выбором метода
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 import time
+import threading
 from typing import Callable
 
 from models.user import User
 from auth.keystroke_auth import KeystrokeAuthenticator
 from config import FONT_FAMILY, FONT_SIZE, MIN_TRAINING_SAMPLES, PANGRAM
 
-class TrainingWindow:
-    """Окно для обучения системы динамике нажатий пользователя"""
+class EnhancedTrainingWindow:
+    """Продвинутое окно для обучения с выбором метода валидации"""
     
     def __init__(self, parent, user: User, keystroke_auth: KeystrokeAuthenticator, on_complete: Callable):
         self.parent = parent
@@ -20,10 +21,10 @@ class TrainingWindow:
         
         # Создание окна
         self.window = tk.Toplevel(parent)
-        self.window.title("Обучение системы")
-        self.window.geometry("700x800")
+        self.window.title("Продвинутое обучение системы")
+        self.window.geometry("800x900")
         self.window.resizable(True, True)
-        self.window.minsize(600, 1000)
+        self.window.minsize(700, 800)
         
         # Модальное окно
         self.window.transient(parent)
@@ -37,8 +38,10 @@ class TrainingWindow:
         self.is_recording = False
         self.current_sample = 0
         self.training_text = PANGRAM
+        self.use_enhanced_training = tk.BooleanVar(value=True)
+        self.training_in_progress = False
         
-        # Нормализованный текст для сравнения (без пробелов и в нижнем регистре)
+        # Нормализованный текст для сравнения
         self.normalized_target = self._normalize_text(PANGRAM)
         
         # Создание интерфейса
@@ -48,7 +51,7 @@ class TrainingWindow:
         self.update_progress()
     
     def _normalize_text(self, text: str) -> str:
-        """Нормализация текста - убираем пробелы и приводим к нижнему регистру"""
+        """Нормализация текста"""
         return text.lower().replace(" ", "")
     
     def center_window(self):
@@ -62,43 +65,76 @@ class TrainingWindow:
     
     def create_widgets(self):
         """Создание виджетов окна обучения"""
-        main_frame = ttk.Frame(self.window, padding=30)
+        main_frame = ttk.Frame(self.window, padding=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Заголовок
         title_label = ttk.Label(
             main_frame,
-            text="Обучение системы динамике нажатий",
+            text="🚀 Продвинутое обучение системы динамики нажатий",
             font=(FONT_FAMILY, 16, 'bold')
         )
         title_label.pack(pady=(0, 10))
         
-        # Информация
-        info_text = f"""Для обучения системы вашему уникальному стилю набора текста
-необходимо {MIN_TRAINING_SAMPLES} раз ввести следующую панграмму:
+        # Выбор метода обучения
+        method_frame = ttk.LabelFrame(main_frame, text="Метод обучения", padding=15)
+        method_frame.pack(fill=tk.X, pady=10)
+        
+        enhanced_radio = ttk.Radiobutton(
+            method_frame,
+            text="🔬 Продвинутое обучение (с кросс-валидацией)",
+            variable=self.use_enhanced_training,
+            value=True
+        )
+        enhanced_radio.pack(anchor=tk.W)
+        
+        basic_radio = ttk.Radiobutton(
+            method_frame,
+            text="⚡ Базовое обучение (быстрое)",
+            variable=self.use_enhanced_training,
+            value=False
+        )
+        basic_radio.pack(anchor=tk.W)
+        
+        # Описание методов
+        method_desc = ttk.Label(
+            method_frame,
+            text="""🔬 Продвинутое: Включает кросс-валидацию, оптимизацию гиперпараметров, 
+анализ переобучения и детальную оценку качества модели.
 
-"{PANGRAM}"
+⚡ Базовое: Простое обучение без валидации (как раньше).""",
+            justify=tk.LEFT,
+            font=(FONT_FAMILY, 9)
+        )
+        method_desc.pack(anchor=tk.W, pady=(10, 0))
+        
+        # Информация о процессе
+        info_frame = ttk.LabelFrame(main_frame, text="Процесс обучения", padding=15)
+        info_frame.pack(fill=tk.X, pady=10)
+        
+        info_text = f"""Для обучения системы необходимо:
+
+1️⃣ Собрать {MIN_TRAINING_SAMPLES} образцов вашего стиля печати
+2️⃣ Ввести панграмму: "{PANGRAM}"
+3️⃣ Обучить модель выбранным методом
 
 ВАЖНЫЕ ПРАВИЛА:
 • Печатайте в своем обычном темпе - НЕ торопитесь
-• Регистр букв не важен (можно печатать как угодно)
-• Пробелы можно пропускать или ставить где угодно
-• Если ошибетесь - ввод сбросится автоматически
-• Делайте небольшие паузы между образцами (2-3 сек)
-
-Это займет примерно 15-20 минут."""
+• Регистр букв не важен, пробелы можно пропускать
+• При ошибке ввод сбросится автоматически
+• Делайте паузы между образцами (2-3 сек)"""
         
         info_label = ttk.Label(
-            main_frame,
+            info_frame,
             text=info_text,
-            wraplength=450,
-            justify=tk.CENTER
+            wraplength=600,
+            justify=tk.LEFT
         )
-        info_label.pack(pady=10)
+        info_label.pack()
         
-        # Прогресс
-        progress_frame = ttk.LabelFrame(main_frame, text="Прогресс обучения", padding=15)
-        progress_frame.pack(fill=tk.X, pady=20)
+        # Прогресс сбора данных
+        progress_frame = ttk.LabelFrame(main_frame, text="Прогресс сбора данных", padding=15)
+        progress_frame.pack(fill=tk.X, pady=10)
         
         self.progress_label = ttk.Label(
             progress_frame,
@@ -109,7 +145,7 @@ class TrainingWindow:
         
         self.progress_bar = ttk.Progressbar(
             progress_frame,
-            length=400,
+            length=500,
             mode='determinate',
             maximum=MIN_TRAINING_SAMPLES
         )
@@ -127,7 +163,7 @@ class TrainingWindow:
         )
         self.pangram_label.pack(pady=(0, 10))
         
-        # Отображение прогресса ввода
+        # Прогресс ввода
         self.typing_progress_label = ttk.Label(
             input_frame,
             text="",
@@ -138,7 +174,7 @@ class TrainingWindow:
         
         self.text_entry = ttk.Entry(
             input_frame,
-            width=50,
+            width=60,
             font=(FONT_FAMILY, FONT_SIZE)
         )
         self.text_entry.pack()
@@ -150,23 +186,23 @@ class TrainingWindow:
         )
         self.status_label.pack(pady=5)
         
-        # Советы
-        tips_frame = ttk.LabelFrame(main_frame, text="Советы", padding=10)
-        tips_frame.pack(fill=tk.X, pady=10)
+        # Обучение модели
+        training_frame = ttk.LabelFrame(main_frame, text="Обучение модели", padding=15)
+        training_frame.pack(fill=tk.X, pady=10)
         
-        tips_text = """• Печатайте в своем обычном темпе
-• Не пытайтесь печатать идеально одинаково
-• Расслабьтесь и печатайте естественно
-• При ошибке ввод сбросится - это нормально
-• Текст можно печатать в любом регистре"""
-        
-        tips_label = ttk.Label(
-            tips_frame,
-            text=tips_text,
-            justify=tk.LEFT,
-            font=(FONT_FAMILY, 10)
+        self.training_status = ttk.Label(
+            training_frame,
+            text="Статус: Ожидание сбора данных",
+            font=(FONT_FAMILY, 11)
         )
-        tips_label.pack()
+        self.training_status.pack()
+        
+        self.training_progress = ttk.Progressbar(
+            training_frame,
+            length=500,
+            mode='indeterminate'
+        )
+        self.training_progress.pack(pady=10)
         
         # Кнопки
         button_frame = ttk.Frame(main_frame)
@@ -182,8 +218,8 @@ class TrainingWindow:
         
         self.train_btn = ttk.Button(
             button_frame,
-            text="Обучить модель",
-            command=self.train_model,
+            text="🚀 Обучить модель",
+            command=self.start_training,
             state=tk.DISABLED
         )
         self.train_btn.grid(row=0, column=1, padx=5)
@@ -252,17 +288,15 @@ class TrainingWindow:
                 )
     
     def check_input(self, event=None):
-        """Проверка готовности ввода с валидацией в реальном времени"""
+        """Проверка готовности ввода"""
         current_text = self.text_entry.get()
         normalized_current = self._normalize_text(current_text)
         
-        # Проверяем, является ли текущий ввод правильным префиксом целевого текста
+        # Проверяем правильность префикса
         if len(normalized_current) > len(self.normalized_target):
-            # Ввод слишком длинный - сбрасываем
             self._reset_input("Текст слишком длинный. Начните заново.")
             return
         
-        # Проверяем совпадение символов
         is_correct_prefix = True
         for i, char in enumerate(normalized_current):
             if i >= len(self.normalized_target) or char != self.normalized_target[i]:
@@ -270,7 +304,6 @@ class TrainingWindow:
                 break
         
         if not is_correct_prefix:
-            # Ошибка в вводе - сбрасываем
             self._reset_input("Ошибка в тексте. Начните заново.")
             return
         
@@ -302,24 +335,18 @@ class TrainingWindow:
     
     def _reset_input(self, message: str):
         """Сброс ввода при ошибке"""
-        # Останавливаем запись
         if self.is_recording:
             self.stop_recording()
             if self.session_id:
-                # Отменяем текущую сессию без сохранения
                 if self.session_id in self.keystroke_auth.current_session:
                     del self.keystroke_auth.current_session[self.session_id]
                 self.session_id = None
         
-        # Очищаем поле
         self.text_entry.delete(0, tk.END)
-        
-        # Показываем сообщение
         self.status_label.config(text=message, foreground="red")
         self.typing_progress_label.config(text="")
         self.submit_btn.config(state=tk.DISABLED)
         
-        # Через 2 секунды сбрасываем сообщение и начинаем заново
         self.window.after(2000, self._clear_error_and_restart)
     
     def _clear_error_and_restart(self):
@@ -331,80 +358,52 @@ class TrainingWindow:
         """Сохранение образца"""
         current_text = self.text_entry.get()
         normalized_current = self._normalize_text(current_text)
-    
-        print(f"🔍 Отладка сохранения образца:")
-        print(f"   Введенный текст: '{current_text}'")
-        print(f"   Нормализованный: '{normalized_current}'")
-        print(f"   Ожидается: '{self.normalized_target}'")
-        print(f"   Совпадает: {normalized_current == self.normalized_target}")
-        print(f"   Session ID: {self.session_id}")
-        print(f"   Запись активна: {self.is_recording}")
-    
-        # Финальная проверка
+        
         if normalized_current != self.normalized_target:
             messagebox.showwarning("Предупреждение", "Введите панграмму полностью и правильно")
             return
-    
+        
         if self.session_id and self.is_recording:
             try:
-                # Остановка записи
                 self.stop_recording()
-            
-                print(f"⏹️ Завершаем запись сессии: {self.session_id}")
-            
-                # Завершение записи и сохранение
+                
                 features = self.keystroke_auth.finish_recording(self.session_id, is_training=True)
-            
-                print(f"📊 Полученные признаки: {features}")
-            
-                # Проверяем, что признаки были рассчитаны корректно
+                
                 if not features or all(v == 0 for v in features.values()):
-                    print("⚠️ Признаки пустые или нулевые!")
                     messagebox.showwarning(
                         "Предупреждение", 
-                        "Не удалось записать динамику нажатий. Попробуйте еще раз, печатая медленнее."
+                        "Не удалось записать динамику нажатий. Попробуйте еще раз."
                     )
                     self.text_entry.delete(0, tk.END)
                     self.text_entry.focus()
                     return
-            
-                # Обновление счетчика
+                
                 self.current_sample += 1
-            
-                print(f"✅ Образец {self.current_sample} успешно сохранен")
-            
-                # Сообщение об успехе
+                
                 self.status_label.config(
                     text=f"✓ Образец {self.current_sample} сохранен",
                     foreground="green"
                 )
-            
-                # Очистка поля
+                
                 self.text_entry.delete(0, tk.END)
                 self.typing_progress_label.config(text="")
-            
-                # Обновление прогресса
+                
                 self.update_progress()
-            
+                
                 # Пауза перед следующим образцом
                 self.text_entry.config(state=tk.DISABLED)
                 self.status_label.config(
                     text="Небольшая пауза... Готовьтесь к следующему образцу",
                     foreground="blue"
                 )
-            
-                # Через 2 секунды разрешаем новый ввод
+                
                 self.window.after(2000, self._enable_next_input)
-            
+                
             except Exception as e:
-                print(f"❌ Ошибка при сохранении образца: {e}")
-                import traceback
-                traceback.print_exc()
                 messagebox.showerror("Ошибка", f"Ошибка при сохранении образца: {str(e)}")
                 self.text_entry.delete(0, tk.END)
                 self.text_entry.focus()
         else:
-            print(f"⚠️ Нет активной записи. Session ID: {self.session_id}, Recording: {self.is_recording}")
             messagebox.showwarning("Предупреждение", "Нет активной записи")
     
     def _enable_next_input(self):
@@ -428,8 +427,11 @@ class TrainingWindow:
         if progress['is_ready']:
             self.train_btn.config(state=tk.NORMAL)
             self.pangram_label.config(
-                text=f"Достаточно образцов собрано! Можете обучить модель.",
+                text=f"✅ Достаточно образцов собрано! Можете обучить модель.",
                 foreground="green"
+            )
+            self.training_status.config(
+                text="Статус: Готов к обучению модели"
             )
         else:
             remaining = progress['required_samples'] - progress['current_samples']
@@ -438,31 +440,114 @@ class TrainingWindow:
                 foreground="darkblue"
             )
     
-    def train_model(self):
-        """Обучение модели"""
+    def start_training(self):
+        """Запуск обучения модели"""
+        if self.training_in_progress:
+            return
+        
+        method_text = "продвинутое обучение с валидацией" if self.use_enhanced_training.get() else "базовое обучение"
+        
         if messagebox.askyesno(
             "Подтверждение",
-            "Начать обучение модели?\n\nЭто может занять несколько секунд."
+            f"Начать {method_text}?\n\nЭто может занять от нескольких секунд до нескольких минут."
         ):
-            # Показываем прогресс
+            self.training_in_progress = True
             self.train_btn.config(state=tk.DISABLED, text="Обучение...")
-            self.window.update()
+            self.training_status.config(text="Статус: Обучение модели...")
+            self.training_progress.start()
             
-            try:
-                # Обучение модели
-                success, accuracy, message = self.keystroke_auth.train_user_model(self.user)
-                
-                if success:
-                    messagebox.showinfo(
-                        "Успех",
-                        f"{message}\n\nТеперь вы можете использовать двухфакторную аутентификацию!"
-                    )
-                    self.on_complete()
-                    self.window.destroy()
-                else:
-                    messagebox.showerror("Ошибка", message)
-                    self.train_btn.config(state=tk.NORMAL, text="Обучить модель")
+            # Запускаем обучение в отдельном потоке
+            threading.Thread(target=self._train_model_thread, daemon=True).start()
+    
+    def _train_model_thread(self):
+        """Обучение модели в отдельном потоке"""
+        try:
+            from ml.model_manager import ModelManager
+            
+            model_manager = ModelManager()
+            
+            # Выбираем метод обучения
+            use_enhanced = self.use_enhanced_training.get()
+            
+            success, accuracy, message = model_manager.train_user_model(
+                self.user.id, 
+                use_enhanced_training=use_enhanced
+            )
+            
+            # Обновляем интерфейс в главном потоке
+            self.window.after(0, lambda: self._training_completed(success, accuracy, message, use_enhanced))
+            
+        except Exception as e:
+            error_message = f"Ошибка при обучении: {str(e)}"
+            self.window.after(0, lambda: self._training_completed(False, 0.0, error_message, False))
+    
+    def _training_completed(self, success: bool, accuracy: float, message: str, use_enhanced: bool):
+        """Завершение обучения"""
+        self.training_in_progress = False
+        self.training_progress.stop()
+        self.train_btn.config(state=tk.NORMAL, text="🚀 Обучить модель")
+        
+        if success:
+            self.training_status.config(
+                text=f"✅ Обучение завершено успешно! Точность: {accuracy:.1%}"
+            )
+            
+            # Дополнительная информация для продвинутого обучения
+            if use_enhanced:
+                try:
+                    from ml.model_manager import ModelManager
+                    model_manager = ModelManager()
+                    report = model_manager.get_training_report(self.user.id)
                     
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Ошибка при обучении: {str(e)}")
-                self.train_btn.config(state=tk.NORMAL, text="Обучить модель")
+                    if report:
+                        additional_info = f"""
+🔬 РЕЗУЛЬТАТЫ ПРОДВИНУТОГО ОБУЧЕНИЯ:
+
+📊 Основные метрики:
+• Точность на тесте: {accuracy:.1%}
+• Время обучения: {report.get('training_duration', 0):.1f} сек
+• Размер датасета: {report.get('dataset_size', 0)} образцов
+
+⚙️ Оптимальные параметры:
+{self._format_params(report.get('best_params', {}))}
+
+📈 Кросс-валидация и анализ переобучения выполнены.
+📄 Детальный отчет сохранен в training_report_user_{self.user.id}.json"""
+                        
+                        messagebox.showinfo("Продвинутое обучение завершено", additional_info)
+                    else:
+                        messagebox.showinfo("Успех", f"{message}\n\nТеперь система готова к работе!")
+                        
+                except Exception as e:
+                    print(f"Ошибка получения отчета: {e}")
+                    messagebox.showinfo("Успех", f"{message}\n\nТеперь система готова к работе!")
+            else:
+                messagebox.showinfo("Успех", f"{message}\n\nТеперь система готова к работе!")
+            
+            self.on_complete()
+            self.window.destroy()
+        else:
+            self.training_status.config(text="❌ Ошибка обучения")
+            messagebox.showerror("Ошибка", message)
+    
+    def _format_params(self, params: dict) -> str:
+        """Форматирование параметров для отображения"""
+        if not params:
+            return "• Не определены"
+        
+        formatted = []
+        for key, value in params.items():
+            if key == 'n_neighbors':
+                formatted.append(f"• Количество соседей: {value}")
+            elif key == 'weights':
+                formatted.append(f"• Веса: {value}")
+            elif key == 'metric':
+                formatted.append(f"• Метрика: {value}")
+            elif key == 'algorithm':
+                formatted.append(f"• Алгоритм: {value}")
+            else:
+                formatted.append(f"• {key}: {value}")
+        
+        return "\n".join(formatted)
+
+

@@ -1,4 +1,4 @@
-# gui/main_window.py - Главное окно приложения
+# gui/main_window.py - Исправленное главное окно приложения
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -208,18 +208,18 @@ class MainWindow:
         stats_frame.pack(fill=tk.X, pady=10)
     
         try:
-            # ✅ ИСПРАВЛЕНИЕ: Используем метод, который считает ТОЛЬКО обучающие образцы
-            training_samples_count = len(self.db.get_user_training_samples(self.current_user.id))
+            # ✅ ИСПРАВЛЕНИЕ: Используем правильные методы базы данных
+            training_samples = self.password_auth.db.get_user_training_samples(self.current_user.id)
+            training_samples_count = len(training_samples)
         
             # ✅ Считаем попытки аутентификации отдельно
-            all_samples = self.db.get_user_keystroke_samples(self.current_user.id, training_only=False)
-            auth_attempts = len([s for s in all_samples if hasattr(s, 'timestamp')])
-            auth_attempts_only = auth_attempts - training_samples_count
+            all_samples = self.password_auth.db.get_user_keystroke_samples(self.current_user.id, training_only=False)
+            auth_attempts_only = len(all_samples) - training_samples_count
         
             stats_text = f"""
     Обучающих образцов: {training_samples_count}
     Попыток аутентификации: {auth_attempts_only}
-    Всего записей: {auth_attempts}
+    Всего записей: {len(all_samples)}
     Дата регистрации: {self.current_user.created_at.strftime('%d.%m.%Y')}
             """
         
@@ -285,13 +285,33 @@ class MainWindow:
     
     def start_training(self):
         """Начать процесс обучения"""
-        from gui.training_window import TrainingWindow
-        TrainingWindow(
-            self.root,
-            self.current_user,
-            self.keystroke_auth,
-            self.on_training_complete
+        # Показать диалог выбора типа обучения
+        choice = messagebox.askyesnocancel(
+            "Выбор метода обучения",
+            "Выберите метод обучения:\n\n"
+            "ДА - Продвинутое обучение (с валидацией)\n"
+            "НЕТ - Базовое обучение (быстрое)\n"
+            "ОТМЕНА - Отменить"
         )
+    
+        if choice is None:  # Отмена
+            return
+        elif choice:  # Продвинутое обучение
+            from gui.enhanced_training_window import EnhancedTrainingWindow
+            EnhancedTrainingWindow(
+                self.root,
+                self.current_user,
+                self.keystroke_auth,
+                self.on_training_complete
+            )
+        else:  # Базовое обучение
+            from gui.training_window import TrainingWindow
+            TrainingWindow(
+                self.root,
+                self.current_user,
+                self.keystroke_auth,
+                self.on_training_complete
+            )
     
     def test_authentication(self):
         """Тестирование аутентификации"""
