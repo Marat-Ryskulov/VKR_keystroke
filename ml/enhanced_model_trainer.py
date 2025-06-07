@@ -1,4 +1,4 @@
-# ml/enhanced_model_trainer.py - Продвинутая система обучения с валидацией
+# ml/enhanced_model_trainer.py - Исправленная продвинутая система обучения
 
 import numpy as np
 from typing import Tuple, Dict, List, Optional
@@ -34,7 +34,7 @@ class EnhancedModelTrainer:
         self.best_model = None
         self.best_params = {}
         self.training_history = []
-        
+    
     def prepare_training_data(self, positive_samples: List, negative_samples: List = None) -> Tuple[np.ndarray, np.ndarray]:
         """Подготовка данных для обучения с улучшенной генерацией негативов"""
         
@@ -91,9 +91,9 @@ class EnhancedModelTrainer:
             scores = cross_val_score(knn, X, y, cv=cv, scoring='accuracy')
             
             cv_results[k] = {
-                'mean_accuracy': scores.mean(),
-                'std_accuracy': scores.std(),
-                'scores': scores.tolist()
+                'mean_accuracy': float(scores.mean()),  # ✅ Конвертируем в float
+                'std_accuracy': float(scores.std()),    # ✅ Конвертируем в float
+                'scores': scores.tolist()               # ✅ Конвертируем в list
             }
             
             print(f"K={k:2d}: {scores.mean():.3f} ± {scores.std():.3f}")
@@ -138,10 +138,23 @@ class EnhancedModelTrainer:
         print(f"🎯 Лучшая точность: {grid_search.best_score_:.3f}")
         
         self.best_params.update(grid_search.best_params_)
+        
+        # ✅ ИСПРАВЛЕНИЕ: Конвертируем результаты в JSON-совместимые типы
+        cv_results_serializable = {}
+        for key, value in grid_search.cv_results_.items():
+            if isinstance(value, np.ndarray):
+                cv_results_serializable[key] = value.tolist()
+            elif isinstance(value, (np.int64, np.int32)):
+                cv_results_serializable[key] = int(value)
+            elif isinstance(value, (np.float64, np.float32)):
+                cv_results_serializable[key] = float(value)
+            else:
+                cv_results_serializable[key] = value
+        
         self.validation_results['grid_search'] = {
             'best_params': grid_search.best_params_,
-            'best_score': grid_search.best_score_,
-            'cv_results': grid_search.cv_results_
+            'best_score': float(grid_search.best_score_),  # ✅ Конвертируем в float
+            'cv_results': cv_results_serializable          # ✅ Используем очищенные результаты
         }
         
         return grid_search.best_params_
@@ -173,6 +186,7 @@ class EnhancedModelTrainer:
         val_mean = val_scores.mean(axis=1)
         val_std = val_scores.std(axis=1)
         
+        # ✅ ИСПРАВЛЕНИЕ: Конвертируем numpy массивы в списки
         learning_results = {
             'train_sizes': train_sizes_abs.tolist(),
             'train_scores_mean': train_mean.tolist(),
@@ -182,7 +196,7 @@ class EnhancedModelTrainer:
         }
         
         # Анализ переобучения
-        final_gap = train_mean[-1] - val_mean[-1]
+        final_gap = float(train_mean[-1] - val_mean[-1])  # ✅ Конвертируем в float
         if final_gap > 0.1:
             overfitting_status = "ВЫСОКИЙ риск переобучения"
         elif final_gap > 0.05:
@@ -221,23 +235,24 @@ class EnhancedModelTrainer:
         # Метрики
         from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
         
+        # ✅ ИСПРАВЛЕНИЕ: Конвертируем все метрики в стандартные типы Python
         evaluation_results = {
-            'test_accuracy': accuracy_score(y_test, y_pred),
-            'test_precision': precision_score(y_test, y_pred),
-            'test_recall': recall_score(y_test, y_pred),
-            'test_f1': f1_score(y_test, y_pred),
-            'confusion_matrix': confusion_matrix(y_test, y_pred).tolist()
+            'test_accuracy': float(accuracy_score(y_test, y_pred)),
+            'test_precision': float(precision_score(y_test, y_pred)),
+            'test_recall': float(recall_score(y_test, y_pred)),
+            'test_f1': float(f1_score(y_test, y_pred)),
+            'confusion_matrix': confusion_matrix(y_test, y_pred).tolist()  # ✅ Конвертируем в list
         }
         
         # ROC-AUC если есть вероятности
         if len(np.unique(y_test)) > 1:
-            evaluation_results['roc_auc'] = roc_auc_score(y_test, y_prob)
+            evaluation_results['roc_auc'] = float(roc_auc_score(y_test, y_prob))
             
             # ROC кривая
             fpr, tpr, _ = roc_curve(y_test, y_prob)
             evaluation_results['roc_curve'] = {
-                'fpr': fpr.tolist(),
-                'tpr': tpr.tolist()
+                'fpr': fpr.tolist(),  # ✅ Конвертируем в list
+                'tpr': tpr.tolist()   # ✅ Конвертируем в list
             }
         
         print(f"🎯 Точность на тесте: {evaluation_results['test_accuracy']:.3f}")
@@ -288,14 +303,15 @@ class EnhancedModelTrainer:
             training_end = datetime.now()
             training_duration = (training_end - training_start).total_seconds()
             
+            # ✅ ИСПРАВЛЕНИЕ: Убеждаемся, что все данные JSON-совместимы
             training_summary = {
-                'user_id': self.user_id,
+                'user_id': int(self.user_id),  # ✅ Убеждаемся что это int
                 'training_start': training_start.isoformat(),
                 'training_end': training_end.isoformat(),
-                'training_duration': training_duration,
-                'dataset_size': len(X),
-                'n_positive': int(np.sum(y)),
-                'n_negative': int(len(y) - np.sum(y)),
+                'training_duration': float(training_duration),  # ✅ Конвертируем в float
+                'dataset_size': int(len(X)),                    # ✅ Конвертируем в int
+                'n_positive': int(np.sum(y)),                   # ✅ Конвертируем в int
+                'n_negative': int(len(y) - np.sum(y)),          # ✅ Конвертируем в int
                 'best_params': self.best_params,
                 'validation_results': self.validation_results
             }
@@ -431,20 +447,10 @@ class EnhancedModelTrainer:
         print(f"  Среднее расстояние: {np.mean(min_distances):.3f}")
         print(f"  Макс. расстояние: {np.max(min_distances):.3f}")
         
-        # Категоризация по сложности
-        very_close = np.sum(min_distances < np.mean(min_distances) * 0.5)
-        medium = np.sum((min_distances >= np.mean(min_distances) * 0.5) & 
-                       (min_distances < np.mean(min_distances) * 1.5))
-        far = len(min_distances) - very_close - medium
-        
-        print(f"  Очень близкие (сложные): {very_close}")
-        print(f"  Средние: {medium}")
-        print(f"  Далекие (простые): {far}")
-        
         return result
     
     def _save_training_results(self, training_summary: Dict):
-        """Сохранение результатов обучения"""
+        """Сохранение результатов обучения с исправленной сериализацией"""
         
         # Сохранение модели
         if self.best_model is not None:
@@ -463,13 +469,55 @@ class EnhancedModelTrainer:
             
             print(f"💾 Модель сохранена: {model_path}")
         
-        # Сохранение детального отчета
+        # ✅ ИСПРАВЛЕНИЕ: Сохранение JSON с обработкой numpy типов
         report_path = os.path.join(DATA_DIR, f"training_report_user_{self.user_id}.json")
         
-        with open(report_path, 'w') as f:
-            json.dump(training_summary, f, indent=2, ensure_ascii=False)
-        
-        print(f"📄 Отчет сохранен: {report_path}")
+        try:
+            # Создаем копию для сериализации, конвертируя numpy типы
+            serializable_summary = self._make_json_serializable(training_summary)
+            
+            with open(report_path, 'w', encoding='utf-8') as f:
+                json.dump(serializable_summary, f, indent=2, ensure_ascii=False)
+            
+            print(f"📄 Отчет сохранен: {report_path}")
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения JSON отчета: {e}")
+            # Сохраняем упрощенную версию
+            simple_summary = {
+                'user_id': self.user_id,
+                'training_duration': training_summary.get('training_duration', 0),
+                'dataset_size': training_summary.get('dataset_size', 0),
+                'final_accuracy': training_summary.get('validation_results', {}).get('final_evaluation', {}).get('test_accuracy', 0),
+                'best_params': self.best_params,
+                'timestamp': training_summary.get('training_end', datetime.now().isoformat())
+            }
+            
+            with open(report_path, 'w', encoding='utf-8') as f:
+                json.dump(simple_summary, f, indent=2, ensure_ascii=False)
+            
+            print(f"📄 Упрощенный отчет сохранен: {report_path}")
+    
+    def _make_json_serializable(self, obj):
+        """Рекурсивно конвертирует объект в JSON-совместимый формат"""
+        if isinstance(obj, dict):
+            return {key: self._make_json_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._make_json_serializable(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return [self._make_json_serializable(item) for item in obj]
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+            return int(obj)
+        elif isinstance(obj, (np.float64, np.float32, np.float16)):
+            return float(obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, (np.complex64, np.complex128)):
+            return str(obj)  # Комплексные числа как строки
+        else:
+            return obj
     
     @classmethod
     def load_trained_model(cls, user_id: int):
